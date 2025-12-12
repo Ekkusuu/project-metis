@@ -143,14 +143,16 @@ def chat_stream(req: ChatRequest):
                 try:
                     results = retrieve_context(q)
                 except Exception:
-                    results = {"accepted": [], "rejected_by_distance": []}
+                    results = {"accepted": [], "overflow": [], "rejected_by_distance": [], "rejected_by_score": []}
 
                 # Combine rejected lists (distance and score) so UI shows both reasons
                 rejected_distance = results.get("rejected_by_distance", []) or []
                 rejected_score = results.get("rejected_by_score", []) or []
+                overflow = results.get("overflow", []) or []
                 per_query_results.append({
                     "query": q,
                     "accepted": results.get("accepted", []),
+                    "overflow": overflow,  # Store overflow separately
                     "rejected": rejected_distance + rejected_score,
                 })
 
@@ -171,6 +173,58 @@ def chat_stream(req: ChatRequest):
                         continue
                     seen.add(key)
                     combined_accepted.append(ctx)
+
+            # OPTIMIZATION: Fill up to max capacity with overflow chunks
+            # Max capacity = num_queries × reranker_top_k
+            reranker_top_k = rag_cfg.get("reranker_top_k", 2)
+            max_capacity = len(rag_queries) * reranker_top_k
+            current_count = len(combined_accepted)
+            
+            print(f"\n   📊 [Capacity Check] Current: {current_count}, Max: {max_capacity}, Need: {max_capacity - current_count}")
+            
+            # Debug: Show overflow counts per query
+            for i, bucket in enumerate(per_query_results):
+                overflow_count = len(bucket.get("overflow", []))
+                print(f"      Query {i+1} overflow: {overflow_count} chunks")
+            
+            if current_count < max_capacity:
+                # Collect overflow chunks from all queries (these passed all thresholds but were cut by reranker_top_k)
+                overflow_pool: List[Dict[str, Any]] = []
+                for bucket in per_query_results:
+                    for ctx in bucket.get("overflow", []):
+                        md = ctx.get("metadata", {})
+                        src = md.get("source_file")
+                        idx = md.get("chunk_index")
+                        if src is None or idx is None:
+                            key = (None, ctx.get("text", "")[:160])
+                        else:
+                            key = (src, idx)
+                        
+                        if key not in seen:
+                            overflow_pool.append((ctx, key))
+                        else:
+                            print(f"      [Dedup] Overflow chunk already in accepted: {src}")
+                
+                print(f"      Total overflow pool (after dedup): {len(overflow_pool)} chunks")
+                
+                # Sort overflow by rerank_score (highest first) to get the best ones
+                overflow_pool.sort(key=lambda x: float(x[0].get("rerank_score", 0)), reverse=True)
+                
+                # Fill up to max capacity
+                slots_available = max_capacity - current_count
+                added_count = 0
+                for ctx, key in overflow_pool[:slots_available]:
+                    # Remove the rejection reason since we're now accepting it
+                    if "rejection_reason" in ctx:
+                        del ctx["rejection_reason"]
+                    seen.add(key)
+                    combined_accepted.append(ctx)
+                    added_count += 1
+                
+                if added_count > 0:
+                    print(f"   🔄 [Overflow Fill] Added {added_count} overflow chunks to reach {len(combined_accepted)}/{max_capacity} capacity")
+                else:
+                    print(f"   ⚠️ [Overflow Fill] No overflow chunks available to fill")
 
             # For the UI, also collect unique rejected-by-distance chunks (but keep per-query buckets separately)
             combined_rejected: List[Dict[str, Any]] = []

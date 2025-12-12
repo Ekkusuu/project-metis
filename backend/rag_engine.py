@@ -286,14 +286,16 @@ def rerank_contexts(query: str, contexts: List[Dict[str, Any]], top_k: Optional[
         # Sort by rerank score (higher is better)
         reranked_contexts = sorted(contexts, key=lambda x: x.get('rerank_score', 0), reverse=True)
 
-        # If caller requested a top_k, use that; otherwise fall back to rag config
-        if top_k is None:
-            top_k = rag_cfg.get("reranker_top_k", None)
-
+        # top_k logic:
+        # - If top_k is explicitly passed (not None), use it
+        # - If top_k is None, return ALL reranked contexts (no slicing)
+        # The caller (retrieve_context) is responsible for applying reranker_top_k limit
         if top_k is not None:
             reranked_contexts = reranked_contexts[:int(top_k)]
-
-        print(f"Reranking: {len(contexts)} → {len(reranked_contexts)} contexts")
+            print(f"Reranking: {len(contexts)} → {len(reranked_contexts)} contexts (sliced to {top_k})")
+        else:
+            print(f"Reranking: {len(contexts)} contexts (no slice, returning all)")
+        
         for i, ctx in enumerate(reranked_contexts[:3], 1):
             print(f"  [{i}] Rerank score: {ctx.get('rerank_score', 0):.4f}, Distance: {ctx.get('distance', 0):.4f}")
 
@@ -772,17 +774,21 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
             rejected_by_distance = []
             candidates = contexts
 
-        # 2) If reranker enabled, rerank the remaining candidates and keep top `top_k`
+        # 2) If reranker enabled, rerank the remaining candidates and keep top `reranker_top_k`
         use_reranker = rag_cfg.get("use_reranker", False)
         reranker_min_score = rag_cfg.get("reranker_min_score", -1)
+        reranker_top_k = rag_cfg.get("reranker_top_k", top_k)  # Fallback to top_k if not set
 
         final_chunks: List[Dict[str, Any]] = []
         rejected_by_score: List[Dict[str, Any]] = []
+        overflow_chunks: List[Dict[str, Any]] = []  # Chunks that passed all thresholds but cut by reranker_top_k
 
         if use_reranker and candidates:
-            # Rerank and request no more than `top_k` results after reranking
-            ranked = rerank_contexts(query, candidates, top_k=top_k)
-            # After reranking we may additionally filter by min score if configured
+            # Rerank ALL candidates first, then apply reranker_top_k limit
+            # Don't pass top_k to rerank_contexts - let it rerank everything, we'll slice after
+            ranked = rerank_contexts(query, candidates, top_k=None)
+            
+            # Apply min score filter first (before top_k limit)
             if reranker_min_score != -1:
                 kept = []
                 for c in ranked:
@@ -793,8 +799,16 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
                         c["rejection_reason"] = "score"
                         rejected_by_score.append(c)
                 ranked = kept
-            # Ensure we keep at most top_k after filtering
-            final_chunks = ranked[:int(top_k)]
+            
+            # Now apply reranker_top_k limit to get final chunks
+            final_chunks = ranked[:int(reranker_top_k)]
+            
+            # Chunks that passed all thresholds but were cut by reranker_top_k go to overflow
+            # These are good chunks that can be used to fill capacity later
+            overflow_chunks = ranked[int(reranker_top_k):]
+            for c in overflow_chunks:
+                c["rejection_reason"] = "overflow"  # Mark as overflow, not hard rejected
+                    
         else:
             # No reranker: just keep at most top_k distance-filtered chunks
             final_chunks = candidates[:int(top_k)]
@@ -803,7 +817,12 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
         for r in rejected_by_distance:
             r["rejection_reason"] = "distance"
 
-        return {"accepted": final_chunks, "rejected_by_distance": rejected_by_distance, "rejected_by_score": rejected_by_score}
+        return {
+            "accepted": final_chunks, 
+            "overflow": overflow_chunks,  # NEW: chunks that passed but were cut by reranker_top_k
+            "rejected_by_distance": rejected_by_distance, 
+            "rejected_by_score": rejected_by_score
+        }
     except Exception as e:
         import traceback
         print(f"Error retrieving context: {e}")

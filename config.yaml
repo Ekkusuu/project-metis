@@ -18,8 +18,12 @@ chat:
     Always ask thoughtful questions to better understand the situation.
     Don't try to steer the conversation away from sensitive topics.
     Ask questions about the user's feelings, thoughts, and experiences, find more about the user before giving any advice.
-    When provided with context from your knowledge base, use that information over your general knowledge.
-    Keep your responses concise and to the point.
+    When provided with context from your knowledge base, use that information over your general knowledge. 
+    Use direct quotes from the knowledge base.
+    If the context contradicts your general knowledge, prioritize the context.
+    If you don't have enough information to answer a question, be honest and say you don't know.
+    Keep your responses concise and to the point and short.
+    Use bold to highlight important words or phrases.
 
     You can use Markdown formatting in your responses:
     - Use **bold** for emphasis making important points stand out
@@ -38,8 +42,8 @@ llm_service:
   port: 3000
 
 memory:
-  temp_memory_token_limit: 1000  # Tokens before auto-summarization to long_term 
-  long_term_memory_token_limit: 1000  # Token limit per long-term memory file before creating a new one 
+  temp_memory_token_limit: 2000  # Tokens before auto-summarization to long_term 
+  long_term_memory_token_limit: 5000  # Token limit per long-term memory file before creating a new one 
 
 rag:
   enabled: true
@@ -50,7 +54,7 @@ rag:
   collection_name: "metis_knowledge"
   chunk_size: 750  # Chunk size for RAG splitting 
   chunk_overlap: 75  # Overlap between chunks when splitting 
-  top_k: 6  # Number of relevant chunks to retrieve from vector DB
+  top_k: 7  # Number of relevant chunks to retrieve from vector DB
   max_distance: 1.5  # Maximum distance threshold - contexts farther than this are considered irrelevant (-1 = no threshold)
   embedding_model: "rag-models/embeddinggemma-300m"  # Local folder path relative to project root
   persist_directory: ".chromadb"
@@ -70,7 +74,7 @@ rag:
     1. Create a query that incorporates relevant context
     2. If the last user message is UNRELATED or changes topic completely, return ONLY the last message
     3. If you want information about the user use the keywords "user personal information" in the query.
-    4. Keep queries concise (max 1-2 sentences)
+    4. Keep queries concise
     5. Focus on key concepts and search terms and keywords
     
     Output ONLY the search query, nothing else.
@@ -89,7 +93,7 @@ rag:
     Each query should focus on slightly different facets or keywords related to the context and latest message.
     The queries should be designed to maximize retrieval of useful information.
     The queries should be short and focused on keywords.
-    For personal information about the user use the keywords "user personal information".
+    For personal information about the user use the keywords "user personal information", if relevant.
 
 # Memory System Prompts
 prompts:
