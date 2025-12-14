@@ -54,7 +54,7 @@ rag:
   collection_name: "metis_knowledge"
   chunk_size: 750  # Chunk size for RAG splitting 
   chunk_overlap: 75  # Overlap between chunks when splitting 
-  top_k: 7  # Number of relevant chunks to retrieve from vector DB
+  top_k: 6  # Number of relevant chunks to retrieve from vector DB
   max_distance: 1.5  # Maximum distance threshold - contexts farther than this are considered irrelevant (-1 = no threshold)
   embedding_model: "rag-models/embeddinggemma-300m"  # Local folder path relative to project root
   persist_directory: ".chromadb"
@@ -93,7 +93,7 @@ rag:
     Each query should focus on slightly different facets or keywords related to the context and latest message.
     The queries should be designed to maximize retrieval of useful information.
     The queries should be short and focused on keywords.
-    For personal information about the user use the keywords "user personal information", if relevant.
+    For personal information about the user use the keywords "user personal information", if not relevant dont include it.
 
 # Memory System Prompts
 prompts:
@@ -107,6 +107,9 @@ prompts:
     - Skip any section that has no explicit information
     - Be extremely literal and conservative
     - Always use the keywords USER
+    - Don't repeat facts
+    - Write only what's important, like traits, preferences, habits, relationships, feelings, experiences.
+    - Be detailed but concise.
     Format as brief bullet points under relevant headings. Only create headings if you have actual facts.
   
   memory_summarization_user: >
