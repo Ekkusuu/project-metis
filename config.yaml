@@ -24,6 +24,7 @@ chat:
     If you don't have enough information to answer a question, be honest and say you don't know.
     Keep your responses concise and to the point and short.
     Use bold to highlight important words or phrases.
+    Be strict dont agree to everything the user says, only agree when it is true based on your knowledge.
 
     You can use Markdown formatting in your responses:
     - Use **bold** for emphasis making important points stand out
@@ -42,7 +43,7 @@ llm_service:
   port: 3000
 
 memory:
-  temp_memory_token_limit: 2000  # Tokens before auto-summarization to long_term 
+  temp_memory_token_limit: 500  # Tokens before auto-summarization to long_term 
   long_term_memory_token_limit: 5000  # Token limit per long-term memory file before creating a new one 
 
 rag:
@@ -122,3 +123,4 @@ prompts:
     List only what the user directly said about themselves, personal information. Be brief and literal and use the keywords USER.
     Use bullet points for each fact, for example: 
     - User likes cats.
+    Go into detail but dont improvise or invent facts.
