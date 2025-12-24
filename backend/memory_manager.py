@@ -149,6 +149,38 @@ def format_summary_with_prefix(summary: str) -> str:
     return '\n'.join(formatted_lines)
 
 
+def deduplicate_summary(summary: str) -> str:
+    """
+    Remove duplicate bullet points from a summary.
+    Preserves order, keeps first occurrence of each unique fact.
+    
+    Args:
+        summary: Summary text with potential duplicate bullet points
+    
+    Returns:
+        Deduplicated summary
+    """
+    lines = summary.split('\n')
+    seen_facts = set()
+    result_lines = []
+    
+    for line in lines:
+        stripped = line.strip().lower()
+        # Check if it's a bullet point
+        if stripped.startswith(('- ', '* ', '• ')):
+            # Normalize the fact (remove bullet, lowercase, strip whitespace)
+            fact = stripped[2:].strip()
+            if fact not in seen_facts:
+                seen_facts.add(fact)
+                result_lines.append(line)
+            # Skip duplicates
+        else:
+            # Keep non-bullet lines (headers, etc.)
+            result_lines.append(line)
+    
+    return '\n'.join(result_lines)
+
+
 def summarize_and_archive_temp_memory() -> None:
     """
     Use AI to summarize temp_memory content and append to active long_term file.
@@ -185,11 +217,15 @@ def summarize_and_archive_temp_memory() -> None:
         ]
         
         print("Calling LLM service for summarization...")
-        summary = chat_completion(messages, temperature=0.1, max_tokens=1000)
+        summary = chat_completion(messages, temperature=0.3, max_tokens=500)
         print(f"Summary generated: {len(summary)} characters")
         
         # Format summary with user personal information prefix
         formatted_summary = format_summary_with_prefix(summary)
+        
+        # Remove duplicate bullet points
+        formatted_summary = deduplicate_summary(formatted_summary)
+        print(f"After deduplication: {len(formatted_summary)} characters")
         
         # Get the most recent long-term memory file
         long_term_token_limit = memory_cfg.get("long_term_memory_token_limit", 1000)

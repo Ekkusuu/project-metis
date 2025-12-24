@@ -286,11 +286,13 @@ def chat_stream(req: ChatRequest):
             for ctx in accepted_list + rejected_list:
                 md = ctx.get("metadata", {})
                 is_used = "rejection_reason" not in ctx
+                full_text = ctx.get("text", "")
                 item = {
                     "source_file": md.get("source_file", "unknown"),
                     "distance": ctx.get("distance", 0),
                     "rerank_score": ctx.get("rerank_score"),
-                    "text_preview": ctx.get("text", "")[:200],
+                    "text_preview": full_text[:200],
+                    "text": full_text,  # Full text for modal display
                     "chunk_index": md.get("chunk_index", 0),
                     "used": is_used,
                 }

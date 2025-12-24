@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import './RagPanel.css';
 
 interface RagStats {
@@ -13,6 +16,7 @@ interface RagResult {
   distance: number;
   rerank_score?: number;  // Optional rerank score
   text_preview: string;
+  text: string;  // Full chunk text
   chunk_index: number;
   used: boolean;
   rejection_reason?: string;
@@ -30,6 +34,7 @@ function RagPanel() {
   const [ragData, setRagData] = useState<RagRetrievalData>({ results: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [selectedChunk, setSelectedChunk] = useState<RagResult | null>(null);
   const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
 
   const fetchStats = async () => {
@@ -252,7 +257,12 @@ function RagPanel() {
           
           <div className="results-list">
             {ragData.results.map((result, idx) => (
-              <div key={idx} className={`result-item ${result.used ? 'used' : 'rejected'}`}>
+              <div 
+                key={idx} 
+                className={`result-item ${result.used ? 'used' : 'rejected'}`}
+                onClick={() => setSelectedChunk(result)}
+                style={{ cursor: 'pointer' }}
+              >
                 <div className="result-header">
                   <span className="result-status">{result.used ? '✓' : '✗'}</span>
                   <span className="result-file">{result.source_file.split('\\').pop()}</span>
@@ -270,6 +280,34 @@ function RagPanel() {
                 <div className="result-preview">{result.text_preview}...</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {selectedChunk && (
+        <div className="chunk-modal" onClick={() => setSelectedChunk(null)}>
+          <div className="chunk-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="chunk-modal-header">
+              <div>
+                <h3>{selectedChunk.source_file.split('\\').pop()}</h3>
+                <div className="chunk-modal-meta">
+                  <span>Chunk #{selectedChunk.chunk_index}</span>
+                  <span>Distance: {selectedChunk.distance.toFixed(4)}</span>
+                  {selectedChunk.rerank_score !== undefined && selectedChunk.rerank_score !== null && (
+                    <span>Rerank: {selectedChunk.rerank_score.toFixed(4)}</span>
+                  )}
+                  <span className={selectedChunk.used ? 'status-used' : 'status-rejected'}>
+                    {selectedChunk.used ? 'Used' : 'Rejected'}
+                  </span>
+                </div>
+              </div>
+              <button className="close-button" onClick={() => setSelectedChunk(null)}>×</button>
+            </div>
+            <div className="chunk-modal-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                {selectedChunk.text}
+              </ReactMarkdown>
+            </div>
           </div>
         </div>
       )}
