@@ -1,0 +1,12 @@
+# Local-only overrides for this machine.
+# Copy this file to config.local.yaml and edit values as needed.
+
+rag:
+  folders_to_index:
+    - "C:\\path\\to\\your\\notes"
+    - "memory/long_term"
+
+chat:
+  system_prompt: >
+    You are Metis, a helpful AI assistant.
+    Keep responses concise, accurate, and empathetic.

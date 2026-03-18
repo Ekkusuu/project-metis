@@ -12,27 +12,58 @@ const projectRoot = join(__dirname, "..", "..");
 
 // Load configuration
 const configPath = join(projectRoot, "config.yaml");
+const localConfigPath = join(projectRoot, "config.local.yaml");
 let config;
+
+function deepMerge(base, override) {
+  const out = { ...base };
+  for (const [key, value] of Object.entries(override || {})) {
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      out[key] &&
+      typeof out[key] === "object" &&
+      !Array.isArray(out[key])
+    ) {
+      out[key] = deepMerge(out[key], value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+const defaultConfig = {
+  model: {
+    path: "model/psychologistv2-8.0B-Q4_0.gguf",
+    n_ctx: 8192,
+    n_gpu_layers: -1,
+  },
+  chat: {
+    system_prompt: "You are Metis, a helpful AI assistant.",
+    temperature: 0.7,
+    top_p: 0.95,
+    max_tokens: 512,
+  },
+  llm_service: {
+    port: 3000,
+  },
+};
+
 try {
-  config = yaml.load(readFileSync(configPath, "utf8"));
+  const baseConfig = yaml.load(readFileSync(configPath, "utf8")) || {};
+  config = deepMerge(defaultConfig, baseConfig);
+
+  try {
+    const localConfig = yaml.load(readFileSync(localConfigPath, "utf8")) || {};
+    config = deepMerge(config, localConfig);
+  } catch (_localErr) {
+    // Optional local overrides file; ignore if missing/invalid
+  }
 } catch (err) {
   console.error("Failed to load config.yaml, using defaults:", err.message);
-  config = {
-    model: {
-      path: "Model/dolphin-2.6-mistral-7b.Q5_K_M.gguf",
-      n_ctx: 8192,
-      n_gpu_layers: -1,
-    },
-    chat: {
-      system_prompt: "You are Metis, a helpful AI assistant.",
-      temperature: 0.7,
-      top_p: 0.95,
-      max_tokens: 512,
-    },
-    llm_service: {
-      port: 3000,
-    },
-  };
+  config = defaultConfig;
 }
 
 const app = express();
