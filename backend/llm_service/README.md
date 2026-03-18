@@ -1,28 +1,24 @@
 # LLM Service
 
-Node.js service using `node-llama-cpp` for GPU-accelerated inference.
+Node.js service in this directory that runs local GGUF inference via `node-llama-cpp`.
 
-## Installation
+## Install
 
-```bash
+```sh
 cd backend/llm_service
 npm install
 ```
 
-## Running
+## Run
 
-```bash
+```sh
 npm start
 ```
 
-The service will start on port 3000 (configurable in `config.yaml`).
+Port is read from `config.yaml` (`llm_service.port`, default `3000`).
 
 ## Endpoints
 
-- `GET /health` - Health check
-- `POST /chat/completion` - Non-streaming chat completion
-- `POST /chat/stream` - Streaming chat completion
-
-## GPU Support
-
-node-llama-cpp automatically detects and uses CUDA if available. No additional configuration needed!
+- `GET /health`
+- `POST /chat/completion`
+- `POST /chat/stream`
