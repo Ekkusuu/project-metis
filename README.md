@@ -88,6 +88,14 @@ At minimum, verify:
 - `model.tokenizer_path` points to an existing tokenizer folder
 - `rag.folders_to_index` paths exist on your machine
 
+For machine-specific overrides, use `config.local.yaml` (ignored by git):
+
+```sh
+cp config.local.example.yaml config.local.yaml
+```
+
+Then edit local paths/prompts in `config.local.yaml` without committing personal values.
+
 ### 4) Start services
 
 Windows:
@@ -130,7 +138,7 @@ Key sections:
 - `rag`: on/off, folders, chunking, retrieval limits, distance filter, embedding model, Chroma persistence, query generation prompts, reranker settings
 - `prompts`: memory summarization prompts
 
-Note: this project uses config values, not environment variables, for most runtime behavior.
+Note: this project uses config values, not environment variables, for most runtime behavior. Runtime config is loaded as `config.yaml` then optionally merged with `config.local.yaml`.
 
 ## API Highlights
 
@@ -200,7 +208,7 @@ Project Metis/
 
 ## Caveats
 
-- `config.yaml` currently contains machine-specific folder paths under `rag.folders_to_index`; these must be updated per machine.
+- Keep machine-specific paths and private prompt customizations in `config.local.yaml`, not in tracked `config.yaml`.
 - `requirements.txt` intentionally does not pin `torch`; install method depends on your CUDA/CPU setup.
 - `node-llama-cpp`, local embeddings, and reranker models can be RAM/VRAM intensive.
 - If tokenizer paths or model folders are missing, token counting/RAG quality degrades or features fail.

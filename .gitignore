@@ -111,6 +111,9 @@ lerna-debug.log*
 .env.* 
 !.env.example
 
+# Local machine-specific config overrides
+config.local.yaml
+
 # Python
 __pycache__/
 *.py[cod]

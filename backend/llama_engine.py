@@ -1,18 +1,31 @@
 from __future__ import annotations
 
 import os
+import json
 import yaml
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from pathlib import Path
-from typing import List, Dict, Optional, Iterator, Any
+from typing import List, Dict, Optional, Iterator, Any, cast
 
 # Global configuration
 _config: Optional[Dict[str, Any]] = None
 
 # Default paths
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
+LOCAL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.local.yaml"
+
+
+def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge override into base and return merged dict."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def load_config() -> Dict[str, Any]:
@@ -23,7 +36,7 @@ def load_config() -> Dict[str, Any]:
 
     default_config = {
         "model": {
-            "path": "Model/dolphin-2.6-mistral-7b.Q5_K_M.gguf",
+            "path": "model/psychologistv2-8.0B-Q4_0.gguf",
             "n_ctx": 8192,
             "n_gpu_layers": -1,
         },
@@ -39,25 +52,37 @@ def load_config() -> Dict[str, Any]:
         },
     }
 
+    loaded_cfg: Dict[str, Any] = {}
+
+    current_config: Dict[str, Any]
+
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                _config = yaml.safe_load(f) or {}
+                raw = yaml.safe_load(f) or {}
+            if isinstance(raw, dict):
+                loaded_cfg = raw
             # Merge with defaults for any missing keys
-            for section in default_config:
-                if section not in _config:
-                    _config[section] = default_config[section]
-                else:
-                    for key, value in default_config[section].items():
-                        if key not in _config[section]:
-                            _config[section][key] = value
+            current_config = _deep_merge_dicts(default_config, loaded_cfg)
         except Exception as e:
             print(f"Warning: Failed to load config.yaml: {e}. Using defaults.")
-            _config = default_config
+            current_config = default_config
     else:
-        _config = default_config
+        current_config = default_config
 
-    return _config
+    # Optional local overrides (ignored by git), useful for machine-specific paths
+    if LOCAL_CONFIG_PATH.exists():
+        try:
+            with open(LOCAL_CONFIG_PATH, "r", encoding="utf-8") as f:
+                local_cfg = yaml.safe_load(f) or {}
+            if isinstance(local_cfg, dict):
+                current_config = _deep_merge_dicts(current_config, local_cfg)
+        except Exception as e:
+            print(f"Warning: Failed to load config.local.yaml: {e}. Continuing without local overrides.")
+
+    _config = current_config
+
+    return cast(Dict[str, Any], _config)
 
 
 def get_config() -> Dict[str, Any]:
@@ -186,7 +211,6 @@ def chat_completion_stream(
         for line in response.iter_lines(decode_unicode=True):
             if line:
                 try:
-                    import json
                     chunk = json.loads(line)
                     # Only yield delta content, skip done signals
                     if "delta" in chunk and chunk["delta"]:
