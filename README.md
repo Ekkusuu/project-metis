@@ -1,102 +1,73 @@
 # Project Metis
 
-Project Metis is a local-first AI assistant that combines:
-- a React chat UI,
-- a FastAPI orchestration backend,
-- a Node.js `node-llama-cpp` inference service for GGUF models,
-- retrieval-augmented generation (RAG) with ChromaDB,
-- and a memory pipeline that preserves long-term user context.
+![Project Metis banner](frontend/src/assets/banner.png)
 
-Everything runs locally (no hosted LLM APIs required by default).
+Project Metis is a local-first AI assistant with three parts:
+- a React frontend,
+- a FastAPI backend,
+- a Node `node-llama-cpp` LLM service.
 
-## What It Does
+It can also index local folders for RAG and store conversation memory on disk.
 
-- Runs a local GGUF chat model via `node-llama-cpp`.
-- Streams model responses token-by-token to the frontend.
-- Retrieves relevant context from indexed local folders before generation.
-- Shows retrieval diagnostics in the UI (accepted/rejected chunks, distances, rerank scores).
-- Persists chat history to disk.
-- Stores trimmed/reset conversation text into temp memory, summarizes it, and archives long-term memory.
+## Project Layout
 
-## How It Works
+```text
+Project Metis/
+|- backend/
+|- frontend/
+|- model/
+|- rag-models/
+|- memory/
+|- docs/
+|- config.yaml
+|- config.local.yaml        # optional, git-ignored
+|- docker-compose.yml
+|- prepare_docker_release.py
+|- publish_release.bat
+|- publish_release.sh
+|- setup.bat
+|- setup.sh
+|- start.bat
+|- start.sh
+|- start_docker.bat
+|- start_docker.sh
+```
 
-1. Frontend sends chat history to `POST /chat/stream` on FastAPI.
-2. Backend optionally generates multiple contextual RAG queries and retrieves chunks from ChromaDB.
-3. Backend injects accepted context chunks into the system prompt.
-4. Backend forwards the final message list to Node LLM service (`/chat/stream`).
-5. Node service streams tokens back to backend, then backend streams NDJSON to frontend.
-6. Backend tracks current context and persists/archives old messages through memory endpoints.
-
-## Tech Stack
-
-- Frontend: React 19, TypeScript, Vite, React Markdown
-- Backend API: FastAPI, Uvicorn, Pydantic
-- Inference service: Node.js, Express, `node-llama-cpp`
-- RAG store: ChromaDB (persistent), local `sentence-transformers` models
-- Reranking: `sentence-transformers` CrossEncoder (`bge-reranker-base`)
-- Config: `config.yaml`
-
-## Prerequisites
+## Requirements
 
 - Python 3.10+
 - Node.js 18+
 - `npm`
-- A compatible GGUF model in `model/`
-- Local embedding model folders in `rag-models/` (if RAG is enabled)
-- NVIDIA GPU + compatible driver if you want CUDA-accelerated PyTorch/reranker work
+- a GGUF model in `model/`
+- embedding / reranker models in `rag-models/` if RAG is enabled
+- Docker Desktop or Docker Engine if you want the Docker workflow
+- NVIDIA GPU + drivers if you want GPU acceleration
 
-## Setup
+## Manual Setup
 
-### 1) Python dependencies
+Use this when you want the normal dev workflow with separate services.
 
-Windows:
-
-```bat
-install_python_requirements.bat
-```
-
-macOS/Linux:
-
-```sh
-sh ./install_python_requirements.sh
-```
-
-This installs `requirements.txt` and attempts to install CUDA 12.6 PyTorch wheels by default. Override index if needed:
-
-```sh
-TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu sh ./install_python_requirements.sh
-```
-
-### 2) Node dependencies
+### 1. Install everything
 
 Windows:
 
 ```bat
-install_all_node_deps.bat
+setup.bat
 ```
 
-macOS/Linux:
+macOS / Linux:
 
 ```sh
-sh ./install_all_node_deps.sh
+sh ./setup.sh
 ```
 
-### 3) Configure `config.yaml`
-
-At minimum, verify:
-- `model.path` points to a real GGUF file in `model/`
-- `model.tokenizer_path` points to an existing tokenizer folder
-- `rag.folders_to_index` paths exist on your machine
-
-For machine-specific overrides, use `config.local.yaml` (ignored by git):
+If you need CPU-only PyTorch:
 
 ```sh
-cp config.local.example.yaml config.local.yaml
+TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu sh ./setup.sh
 ```
 
-Then edit local paths/prompts in `config.local.yaml` without committing personal values.
-
-### 4) Start services
+### 2. Start the app
 
 Windows:
 
@@ -104,13 +75,13 @@ Windows:
 start.bat
 ```
 
-macOS/Linux:
+macOS / Linux:
 
 ```sh
 sh ./start.sh
 ```
 
-Manual startup (all platforms):
+Or run each service manually:
 
 ```sh
 # terminal 1
@@ -123,93 +94,259 @@ python -m uvicorn backend.main:app --reload
 cd frontend && npm run dev
 ```
 
-Service URLs:
-- LLM service: `http://localhost:3000`
-- FastAPI backend: `http://localhost:8000`
-- Frontend: `http://localhost:5173`
+Manual dev URLs:
+- frontend: `http://localhost:5173`
+- backend: `http://localhost:8000`
+- llm service: `http://localhost:3000`
 
-## Configuration Reference (`config.yaml`)
+## Docker Setup
 
-Key sections:
-- `model`: GGUF path, tokenizer path, context size, GPU layer offload, thread settings, flash attention, memory locking
-- `chat`: system prompt and generation defaults (`temperature`, `top_p`, `max_tokens`)
-- `llm_service`: host and port used by backend to reach Node service
-- `memory`: temp and long-term token thresholds
-- `rag`: on/off, folders, chunking, retrieval limits, distance filter, embedding model, Chroma persistence, query generation prompts, reranker settings
-- `prompts`: memory summarization prompts
 
-Note: this project uses config values, not environment variables, for most runtime behavior. Runtime config is loaded as `config.yaml` then optionally merged with `config.local.yaml`.
+In Docker, the frontend is built and served by the backend, so you open one URL:
+- app: `http://localhost:8000`
 
-## API Highlights
+### Recommended commands
 
-- `GET /health` - backend health
-- `POST /chat` - non-streaming chat
-- `POST /chat/stream` - streaming chat + RAG augmentation
-- `GET /chat/context` - current backend context snapshot
-- `GET /history/load`, `POST /history/save`, `POST /history/reset`
-- `GET /memory/status`, `POST /memory/summarize`
-- `POST /rag/reindex`, `GET /rag/stats`, `POST /rag/clear`, `GET /rag/last-retrieval`
+Windows:
 
-Node LLM service endpoints (internal to backend, but callable directly):
+```bat
+start_docker.bat
+```
+
+macOS / Linux / Git Bash:
+
+```sh
+./start_docker.sh
+```
+
+### No GPU
+
+Windows:
+
+```bat
+start_docker.bat --no-gpu
+```
+
+macOS / Linux / Git Bash:
+
+```sh
+./start_docker.sh --no-gpu
+```
+
+### Force rebuild
+
+Use this only when image-level things changed, such as:
+- Dockerfiles,
+- Python dependencies,
+- Node dependencies,
+- CUDA / `node-llama-cpp` build setup.
+
+Windows:
+
+```bat
+start_docker.bat --build
+```
+
+macOS / Linux / Git Bash:
+
+```sh
+./start_docker.sh --build
+```
+
+### When you do not need a rebuild
+
+Just run the normal Docker wrapper again when you changed:
+- `config.yaml`
+- `config.local.yaml`
+- RAG folders to index
+- local model or document paths
+
+## Configuration
+
+Main config lives in `config.yaml`.
+
+Optional machine-specific overrides live in `config.local.yaml`.
+That file is git-ignored and is the right place for:
+- local file paths,
+- personal prompts,
+- machine-specific model settings.
+
+To create it:
+
+```sh
+cp config.local.example.yaml config.local.yaml
+```
+
+At minimum, check these values:
+- `model.path`
+- `model.tokenizer_path`
+- `rag.folders_to_index`
+- `rag.embedding_model`
+- `rag.reranker_model`
+
+## How Docker Path Mapping Works
+
+If your config contains absolute host paths like `C:\Users\...` or `/home/...`, containers cannot read them automatically.
+
+`prepare_docker_release.py` solves this by:
+- reading `config.yaml` and `config.local.yaml`,
+- detecting absolute host paths,
+- generating `.docker/config.local.generated.yaml`,
+- generating `.docker/docker-compose.generated.yml`.
+
+That generated Compose file is a local override layered on top of `docker-compose.yml`.
+It adds the bind mounts needed for the paths found in your config.
+
+In short:
+- your host folder gets mounted into the container,
+- the generated config points the app to that in-container path.
+
+You usually do not need to run this script directly because the Docker wrappers already do it for you.
+
+## Useful Commands
+
+Stop Docker stack:
+
+```sh
+docker compose down
+```
+
+Manually generate Docker overrides:
+
+```sh
+python prepare_docker_release.py --gpu
+```
+
+Run Docker manually with generated overrides:
+
+```sh
+docker compose -f docker-compose.yml -f .docker/docker-compose.generated.yml up
+```
+
+Rebuild only the LLM service from scratch:
+
+```sh
+docker compose -f docker-compose.yml -f .docker/docker-compose.generated.yml build --no-cache llm_service
+```
+
+Publish a Docker GitHub release:
+
+```sh
+./publish_release.sh v1.0.0 --latest
+```
+
+```bat
+publish_release.bat v1.0.0 --latest
+```
+
+By default, the publish scripts push to `ghcr.io/ekkusuu/` using these image names:
+- `project-metis-backend`
+- `project-metis-llm-service`
+
+You can override the registry or namespace with environment variables such as `REGISTRY` and `IMAGE_NAMESPACE`.
+
+## Publishing a Docker Release
+
+The publish scripts build the Docker images, push them, then create or update a GitHub Release with a ready-to-download zip bundle.
+
+Windows:
+
+```bat
+publish_release.bat v1.0.0 --latest
+```
+
+macOS / Linux:
+
+```sh
+./publish_release.sh v1.0.0 --latest
+```
+
+What happens:
+- the backend and LLM images are built and pushed,
+- the release tag is used as the Docker image tag,
+- a zip bundle is generated,
+- the zip is uploaded to the GitHub Release.
+
+Before publishing, make sure:
+- you are logged into the registry, for example `docker login ghcr.io`
+- you are logged into GitHub CLI, for example `gh auth login`
+- your Docker build works locally
+- your tag is the version you want to publish
+
+The release zip contains:
+- `docker-compose.yml`
+- `config.yaml`
+- `config.local.example.yaml`
+- `RELEASE.md`
+- `model/`, `rag-models/`, `memory/`, `docs/`, `.chromadb/`
+
+Default published image names:
+- `ghcr.io/ekkusuu/project-metis-backend:<tag>`
+- `ghcr.io/ekkusuu/project-metis-llm-service:<tag>`
+
+Example:
+- `ghcr.io/ekkusuu/project-metis-backend:v1.0.0`
+- `ghcr.io/ekkusuu/project-metis-llm-service:v1.0.0`
+
+## Downloading a Release
+
+Cloning the repo is not required when prebuilt images are published.
+
+The download flow is simple:
+1. open the GitHub Release page,
+2. download the release zip,
+3. extract it,
+4. put their GGUF file in `model/`,
+5. put embedding and reranker folders in `rag-models/`,
+6. run `docker compose up`.
+
+Important:
+- the Docker release includes the application code,
+- it does not include GGUF model files or embedding model folders
+
+Typical release folder layout:
+
+```text
+metis-release/
+|- docker-compose.yml
+|- config.yaml
+|- config.local.example.yaml
+|- RELEASE.md
+|- model/
+|- rag-models/
+|- memory/
+|- docs/
+|- .chromadb/
+```
+
+Inside that folder, copy `config.local.example.yaml` to `config.local.yaml` if you want local overrides.
+
+## API Endpoints
+
+Backend:
+- `GET /health`
+- `POST /chat`
+- `POST /chat/stream`
+- `GET /chat/context`
+- `GET /history/load`
+- `POST /history/save`
+- `POST /history/reset`
+- `GET /memory/status`
+- `POST /memory/summarize`
+- `POST /rag/reindex`
+- `GET /rag/stats`
+- `POST /rag/clear`
+- `GET /rag/last-retrieval`
+
+LLM service:
 - `GET /health`
 - `POST /chat/completion`
 - `POST /chat/stream`
 
-## File Structure
+## Notes
 
-```text
-Project Metis/
-|- backend/
-|  |- main.py
-|  |- llama_engine.py
-|  |- rag_engine.py
-|  |- context_manager.py
-|  |- memory_manager.py
-|  |- token_utils.py
-|  |- routers/
-|  |  |- chat.py
-|  |  |- history.py
-|  |  |- memory.py
-|  |- llm_service/
-|     |- server.js
-|     |- package.json
-|- frontend/
-|  |- src/components/
-|  |  |- ChatInterface.tsx
-|  |  |- RagPanel.tsx
-|  |  |- ChatContext.tsx
-|  |  |- Sidebar.tsx
-|  |- package.json
-|- memory/
-|  |- chat_history.json
-|  |- temp_memory.txt
-|  |- long_term/
-|  |- MEMORY_SYSTEM.md
-|- model/
-|- rag-models/
-|- config.yaml
-|- requirements.txt
-|- install_python_requirements.bat
-|- install_python_requirements.sh
-|- install_all_node_deps.bat
-|- install_all_node_deps.sh
-|- start.bat
-|- start.sh
-```
-
-## Settings and Behavior Notes
-
-- Frontend API base defaults to `http://localhost:8000` and can be overridden with `frontend/.env` using `VITE_API_URL`.
-- Chat history is stored in `memory/chat_history.json` and reloaded on app start.
-- Resetting chat saves prior conversation to temp memory asynchronously, then resets visible history immediately.
-- Context trimming keeps system prompt and newer messages; removed messages are appended to temp memory.
-- Temp memory is summarized into `memory/long_term/memory_*.md` once token limit is reached.
-- RAG indexing runs at backend startup and checks for changed/deleted files.
-
-## Caveats
-
-- Keep machine-specific paths and private prompt customizations in `config.local.yaml`, not in tracked `config.yaml`.
-- `requirements.txt` intentionally does not pin `torch`; install method depends on your CUDA/CPU setup.
-- `node-llama-cpp`, local embeddings, and reranker models can be RAM/VRAM intensive.
-- If tokenizer paths or model folders are missing, token counting/RAG quality degrades or features fail.
-- The backend CORS list currently includes `"*"`; tighten this for production.
+- frontend API defaults to `http://localhost:8000` in dev and same-origin in production
+- chat history is stored in `memory/chat_history.json`
+- long-term memory files are written under `memory/long_term/`
+- RAG indexing runs on backend startup and can also be triggered through the API
+- keep personal paths and prompt edits in `config.local.yaml`
