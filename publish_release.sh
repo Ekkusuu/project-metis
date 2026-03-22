@@ -77,6 +77,7 @@ RELEASE_COMPOSE="${BUNDLE_DIR}/docker-compose.yml"
 RELEASE_CONFIG="${BUNDLE_DIR}/config.local.example.yaml"
 RELEASE_NOTES="${BUNDLE_DIR}/RELEASE.md"
 RELEASE_ZIP="${RELEASE_DIR}/project-metis-${TAG}.zip"
+RELEASE_ASSET="${RELEASE_DIR}/project-metis-release.zip"
 
 echo "Publishing Docker release ${TAG}"
 echo "Backend image: ${BACKEND_REF}"
@@ -189,10 +190,12 @@ with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(path, path.relative_to(bundle_dir.parent))
 PY
 
+cp "$RELEASE_ZIP" "$RELEASE_ASSET"
+
 if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-  gh release upload "$TAG" "$RELEASE_ZIP" --clobber --repo "$GITHUB_REPOSITORY"
+  gh release upload "$TAG" "$RELEASE_ASSET" --clobber --repo "$GITHUB_REPOSITORY"
 else
-  gh release create "$TAG" "$RELEASE_ZIP" \
+  gh release create "$TAG" "$RELEASE_ASSET" \
     --repo "$GITHUB_REPOSITORY" \
     --title "$TAG" \
     --notes "Docker release ${TAG}\n\nImages:\n- ${BACKEND_REF}\n- ${LLM_REF}"

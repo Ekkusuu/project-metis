@@ -290,7 +290,9 @@ Example:
 
 ## Downloading a Release
 
-Cloning the repo is not required when prebuilt images are published.
+Download the latest Docker release bundle directly:
+
+**[⬇ Download latest release zip](https://github.com/Ekkusuu/project-metis/releases/latest/download/project-metis-release.zip)**
 
 The download flow is simple:
 1. open the GitHub Release page,
