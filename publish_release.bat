@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
@@ -54,6 +54,7 @@ set "RELEASE_COMPOSE=%BUNDLE_DIR%\docker-compose.yml"
 set "RELEASE_CONFIG=%BUNDLE_DIR%\config.local.example.yaml"
 set "RELEASE_NOTES=%BUNDLE_DIR%\RELEASE.md"
 set "RELEASE_ZIP=%RELEASE_DIR%\project-metis-%TAG%.zip"
+set "RELEASE_ASSET=%RELEASE_DIR%\project-metis-release.zip"
 
 echo Publishing Docker release %TAG%
 echo Backend image: %BACKEND_REF%
@@ -76,14 +77,14 @@ if "%PUSH_LATEST%"=="1" (
     set "BACKEND_LATEST=%REGISTRY%/%IMAGE_NAMESPACE%/%BACKEND_IMAGE%:latest"
     set "LLM_LATEST=%REGISTRY%/%IMAGE_NAMESPACE%/%LLM_IMAGE%:latest"
 
-    docker tag "%BACKEND_REF%" "%BACKEND_LATEST%"
+    docker tag "%BACKEND_REF%" "!BACKEND_LATEST!"
     if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
-    docker tag "%LLM_REF%" "%LLM_LATEST%"
+    docker tag "%LLM_REF%" "!LLM_LATEST!"
     if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
-    docker push "%BACKEND_LATEST%"
+    docker push "!BACKEND_LATEST!"
     if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
-    docker push "%LLM_LATEST%"
+    docker push "!LLM_LATEST!"
     if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 )
 
@@ -175,12 +176,15 @@ echo - %LLM_REF%
 powershell -NoProfile -Command "Compress-Archive -Path '%BUNDLE_DIR%' -DestinationPath '%RELEASE_ZIP%' -Force"
 if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
+copy /Y "%RELEASE_ZIP%" "%RELEASE_ASSET%" >nul
+if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+
 gh release view "%TAG%" --repo "%GITHUB_REPOSITORY%" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    gh release upload "%TAG%" "%RELEASE_ZIP%" --clobber --repo "%GITHUB_REPOSITORY%"
+    gh release upload "%TAG%" "%RELEASE_ASSET%" --clobber --repo "%GITHUB_REPOSITORY%"
     if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 ) else (
-    gh release create "%TAG%" "%RELEASE_ZIP%" --repo "%GITHUB_REPOSITORY%" --title "%TAG%" --notes "Docker release %TAG%"
+    gh release create "%TAG%" "%RELEASE_ASSET%" --repo "%GITHUB_REPOSITORY%" --title "%TAG%" --notes "Docker release %TAG%"
     if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 )
 
