@@ -145,6 +145,9 @@ def chat_stream(req: ChatRequest):
                 except Exception:
                     results = {"accepted": [], "overflow": [], "rejected_by_distance": [], "rejected_by_score": []}
 
+                if not isinstance(results, dict):
+                    results = {"accepted": [], "overflow": [], "rejected_by_distance": [], "rejected_by_score": []}
+
                 # Combine rejected lists (distance and score) so UI shows both reasons
                 rejected_distance = results.get("rejected_by_distance", []) or []
                 rejected_score = results.get("rejected_by_score", []) or []

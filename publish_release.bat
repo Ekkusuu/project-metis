@@ -51,6 +51,7 @@ set "LLM_REF=%REGISTRY%/%IMAGE_NAMESPACE%/%LLM_IMAGE%:%TAG%"
 set "RELEASE_DIR=.release\%TAG%"
 set "BUNDLE_DIR=%RELEASE_DIR%\project-metis-%TAG%"
 set "RELEASE_COMPOSE=%BUNDLE_DIR%\docker-compose.yml"
+set "RELEASE_GPU_COMPOSE=%BUNDLE_DIR%\docker-compose.gpu.yml"
 set "RELEASE_CONFIG=%BUNDLE_DIR%\config.local.example.yaml"
 set "RELEASE_NOTES=%BUNDLE_DIR%\RELEASE.md"
 set "RELEASE_ZIP=%RELEASE_DIR%\project-metis-%TAG%.zip"
@@ -114,15 +115,14 @@ echo     healthcheck:
 echo       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((res) =^> { if (!res.ok) process.exit(1); }).catch(() =^> process.exit(1));"]
 echo       interval: 30s
 echo       timeout: 10s
-echo       retries: 5
-echo       start_period: 90s
+echo       retries: 10
+echo       start_period: 300s
 echo.
 echo   backend:
 echo     image: %BACKEND_REF%
 echo     restart: unless-stopped
 echo     depends_on:
-echo       llm_service:
-echo         condition: service_healthy
+echo       - llm_service
 echo     environment:
 echo       METIS_LLM_SERVICE_HOST: llm_service
 echo       METIS_LLM_SERVICE_PORT: 3000
@@ -140,10 +140,52 @@ echo       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.
 echo       interval: 30s
 echo       timeout: 10s
 echo       retries: 5
-echo       start_period: 30s
+echo       start_period: 90s
 ) > "%RELEASE_COMPOSE%"
 
-copy /Y "config.local.example.yaml" "%RELEASE_CONFIG%" >nul
+(
+echo services:
+echo   llm_service:
+echo     environment:
+echo       METIS_LLM_GPU: cuda
+echo       NVIDIA_VISIBLE_DEVICES: all
+echo       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+echo     deploy:
+echo       resources:
+echo         reservations:
+echo           devices:
+echo             - driver: nvidia
+echo               count: all
+echo               capabilities: [gpu]
+echo.
+echo   backend:
+echo     environment:
+echo       NVIDIA_VISIBLE_DEVICES: all
+echo       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+echo     deploy:
+echo       resources:
+echo         reservations:
+echo           devices:
+echo             - driver: nvidia
+echo               count: all
+echo               capabilities: [gpu]
+) > "%RELEASE_GPU_COMPOSE%"
+
+(
+echo # Local overrides for the release bundle.
+echo # Keep indexed folders inside this extracted release directory unless you also
+echo # add matching bind mounts to docker-compose.yml.
+echo.
+echo rag:
+echo   folders_to_index:
+echo     - "docs"
+echo     - "memory/long_term"
+echo.
+echo chat:
+echo   system_prompt: ^>
+echo     You are Metis, a helpful AI assistant.
+echo     Keep responses concise, accurate, and empathetic.
+) > "%RELEASE_CONFIG%"
 
 (
 echo # Project Metis %TAG%
@@ -153,19 +195,28 @@ echo.
 echo 1. Put your GGUF model file in `model/`
 echo 2. Put embedding and reranker model folders in `rag-models/`
 echo 3. Copy `config.local.example.yaml` to `config.local.yaml` if you need local overrides
-echo 4. Run:
+echo    and keep `rag.folders_to_index` inside this release folder by default
+echo 4. For standard startup, run:
 echo.
 echo ```sh
 echo docker compose up
 echo ```
 echo.
-echo 5. Open `http://localhost:8000`
+echo 5. For GPU-enabled startup, run:
+echo.
+echo ```sh
+echo docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+echo ```
+echo.
+echo 6. Open `http://localhost:8000`
 echo.
 echo ## Notes
 echo.
 echo - `config.yaml` is included in this bundle
 echo - model and embedding files are not included; add your own locally
 echo - `memory/`, `docs/`, and `.chromadb/` are included as local data folders
+echo - `docker-compose.gpu.yml` is included for NVIDIA Docker setups
+echo - `config.local.example.yaml` defaults RAG indexing to `docs` and `memory/long_term`
 echo.
 echo ## Published Images
 echo.
