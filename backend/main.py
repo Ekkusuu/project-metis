@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from backend.routers.chat import router as chat_router
 from backend.routers.history import router as history_router
@@ -7,6 +10,11 @@ from backend.routers.memory import router as memory_router
 from backend.llama_engine import get_config
 
 app = FastAPI(title="Project Metis Backend")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
+FRONTEND_INDEX_FILE = FRONTEND_DIST_DIR / "index.html"
+API_PREFIXES = {"chat", "history", "memory", "rag", "health", "docs", "redoc", "openapi.json"}
 
 # Allow frontend dev server (Vite default 5173) and local origins
 app.add_middleware(
@@ -27,8 +35,10 @@ app.include_router(history_router)
 app.include_router(memory_router)
 
 
-@app.get("/", tags=["root"])
+@app.get("/", tags=["root"], include_in_schema=False)
 async def read_root():
+    if FRONTEND_INDEX_FILE.exists():
+        return FileResponse(FRONTEND_INDEX_FILE)
     return {"message": "Project Metis backend is running"}
 
 
@@ -36,6 +46,22 @@ async def read_root():
 async def health():
     """Simple health-check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_frontend(full_path: str):
+    if not FRONTEND_INDEX_FILE.exists():
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    first_segment = full_path.split("/", 1)[0]
+    if first_segment in API_PREFIXES:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    requested_path = (FRONTEND_DIST_DIR / full_path).resolve()
+    if FRONTEND_DIST_DIR.resolve() in requested_path.parents and requested_path.is_file():
+        return FileResponse(requested_path)
+
+    return FileResponse(FRONTEND_INDEX_FILE)
 
 
 @app.on_event("startup")

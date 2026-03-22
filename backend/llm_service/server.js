@@ -14,6 +14,7 @@ const projectRoot = join(__dirname, "..", "..");
 const configPath = join(projectRoot, "config.yaml");
 const localConfigPath = join(projectRoot, "config.local.yaml");
 let config;
+const preferredGpu = process.env.METIS_LLM_GPU?.trim().toLowerCase() || "auto";
 
 function deepMerge(base, override) {
   const out = { ...base };
@@ -85,8 +86,10 @@ async function initModel() {
   console.log("=".repeat(60));
 
     try {
-    llama = await getLlama();
+    const llamaOptions = preferredGpu === "auto" ? {} : { gpu: preferredGpu };
+    llama = await getLlama(llamaOptions);
     console.log("✓ Llama instance created");
+    console.log(`GPU backend: ${llama.gpu || 'unknown'}`);
 
     const modelPath = join(projectRoot, config.model.path);
     console.log(`Loading model from: ${modelPath}`);
