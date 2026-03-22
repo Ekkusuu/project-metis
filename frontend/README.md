@@ -17,7 +17,7 @@ Optional `.env` file:
 VITE_API_URL=http://localhost:8000
 ```
 
-If not set, the frontend defaults to `http://localhost:8000`.
+If not set, the frontend defaults to `http://localhost:8000` in dev and same-origin in production.
 
 Backend machine-specific settings (like local RAG folders and private prompt tweaks)
 should go in root `config.local.yaml` (see `config.local.example.yaml`).

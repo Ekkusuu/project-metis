@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './ChatContext.css';
+import { API_URL } from '../lib/api';
 
 interface ContextMessage {
   role: 'system' | 'user' | 'assistant';
@@ -13,8 +14,6 @@ interface ChatContextProps {
 
 function ChatContext({ messages: externalMessages }: ChatContextProps) {
   const [messages, setMessages] = useState<ContextMessage[]>([]);
-  const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
-
   const fetchContext = async () => {
     try {
       const resp = await fetch(`${API_URL}/chat/context`);

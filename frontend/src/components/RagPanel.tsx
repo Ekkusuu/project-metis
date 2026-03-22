@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import './RagPanel.css';
+import { API_URL } from '../lib/api';
 
 interface RagStats {
   total_chunks: number;
@@ -35,8 +36,6 @@ function RagPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [selectedChunk, setSelectedChunk] = useState<RagResult | null>(null);
-  const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
-
   const fetchStats = async () => {
     try {
       const resp = await fetch(`${API_URL}/rag/stats`);

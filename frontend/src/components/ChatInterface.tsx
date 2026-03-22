@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import './ChatInterface.css';
 import 'highlight.js/styles/github-dark.css';
+import { API_URL } from '../lib/api';
 
 interface Message {
   id: string;
@@ -114,8 +115,6 @@ function ChatInterface() {
   const [editingText, setEditingText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
-
   // Load chat history on mount
   useEffect(() => {
     loadChatHistory();

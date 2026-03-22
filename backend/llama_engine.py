@@ -94,8 +94,8 @@ def get_llm_service_url() -> str:
     """Get the LLM service base URL from config."""
     config = get_config()
     llm_cfg = config.get("llm_service", {})
-    host = llm_cfg.get("host", "localhost")
-    port = llm_cfg.get("port", 3000)
+    host = os.getenv("METIS_LLM_SERVICE_HOST", llm_cfg.get("host", "localhost"))
+    port = int(os.getenv("METIS_LLM_SERVICE_PORT", str(llm_cfg.get("port", 3000))))
     return f"http://{host}:{port}"
 
 
