@@ -9,29 +9,48 @@ Project Metis is a local-first AI assistant with three parts:
 
 It can also index local folders for RAG and store conversation memory on disk.
 
-## Project Layout
+## Downloading a Release
+
+Download the latest Docker release bundle directly:
+
+**[⬇ Download latest release zip](https://github.com/Ekkusuu/project-metis/releases/latest/download/project-metis-release.zip)**
+
+The download flow is simple:
+1. open the GitHub Release page,
+2. download the release zip,
+3. extract it,
+4. put their GGUF file in `model/`,
+5. put embedding and reranker folders in `rag-models/`,
+6. run `docker compose up`.
+
+If NVIDIA Docker is configured on that machine, run:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+```
+
+Important:
+- the Docker release includes the application code,
+- it does not include GGUF model files or embedding model folders
+
+Typical release folder layout:
 
 ```text
-Project Metis/
-|- backend/
-|- frontend/
+metis-release/
+|- docker-compose.yml
+|- docker-compose.gpu.yml
+|- config.yaml
+|- config.local.example.yaml
+|- RELEASE.md
 |- model/
 |- rag-models/
 |- memory/
 |- docs/
-|- config.yaml
-|- config.local.yaml        # optional, git-ignored
-|- docker-compose.yml
-|- prepare_docker_release.py
-|- publish_release.bat
-|- publish_release.sh
-|- setup.bat
-|- setup.sh
-|- start.bat
-|- start.sh
-|- start_docker.bat
-|- start_docker.sh
+|- .chromadb/
 ```
+
+Inside that folder, copy `config.local.example.yaml` to `config.local.yaml` if you want local overrides.
+The release example config uses `docs` and `memory/long_term` for RAG by default.
 
 ## Requirements
 
@@ -104,6 +123,18 @@ Manual dev URLs:
 
 In Docker, the frontend is built and served by the backend, so you open one URL:
 - app: `http://localhost:8000`
+
+Use the default compose file for the normal startup path:
+
+```sh
+docker compose up
+```
+
+Use the GPU override only on machines with working NVIDIA Docker support:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+```
 
 ### Recommended commands
 
@@ -275,6 +306,7 @@ Before publishing, make sure:
 
 The release zip contains:
 - `docker-compose.yml`
+- `docker-compose.gpu.yml`
 - `config.yaml`
 - `config.local.example.yaml`
 - `RELEASE.md`
@@ -288,40 +320,29 @@ Example:
 - `ghcr.io/ekkusuu/project-metis-backend:v1.0.0`
 - `ghcr.io/ekkusuu/project-metis-llm-service:v1.0.0`
 
-## Downloading a Release
-
-Download the latest Docker release bundle directly:
-
-**[⬇ Download latest release zip](https://github.com/Ekkusuu/project-metis/releases/latest/download/project-metis-release.zip)**
-
-The download flow is simple:
-1. open the GitHub Release page,
-2. download the release zip,
-3. extract it,
-4. put their GGUF file in `model/`,
-5. put embedding and reranker folders in `rag-models/`,
-6. run `docker compose up`.
-
-Important:
-- the Docker release includes the application code,
-- it does not include GGUF model files or embedding model folders
-
-Typical release folder layout:
+## Project Layout
 
 ```text
-metis-release/
-|- docker-compose.yml
-|- config.yaml
-|- config.local.example.yaml
-|- RELEASE.md
+Project Metis/
+|- backend/
+|- frontend/
 |- model/
 |- rag-models/
 |- memory/
 |- docs/
-|- .chromadb/
+|- config.yaml
+|- config.local.yaml        # optional, git-ignored
+|- docker-compose.yml
+|- prepare_docker_release.py
+|- publish_release.bat
+|- publish_release.sh
+|- setup.bat
+|- setup.sh
+|- start.bat
+|- start.sh
+|- start_docker.bat
+|- start_docker.sh
 ```
-
-Inside that folder, copy `config.local.example.yaml` to `config.local.yaml` if you want local overrides.
 
 ## API Endpoints
 

@@ -74,6 +74,7 @@ LLM_REF="${REGISTRY}/${IMAGE_NAMESPACE}/${LLM_IMAGE}:${TAG}"
 RELEASE_DIR=".release/${TAG}"
 BUNDLE_DIR="${RELEASE_DIR}/project-metis-${TAG}"
 RELEASE_COMPOSE="${BUNDLE_DIR}/docker-compose.yml"
+RELEASE_GPU_COMPOSE="${BUNDLE_DIR}/docker-compose.gpu.yml"
 RELEASE_CONFIG="${BUNDLE_DIR}/config.local.example.yaml"
 RELEASE_NOTES="${BUNDLE_DIR}/RELEASE.md"
 RELEASE_ZIP="${RELEASE_DIR}/project-metis-${TAG}.zip"
@@ -118,15 +119,14 @@ services:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 90s
+      retries: 10
+      start_period: 300s
 
   backend:
     image: ${BACKEND_REF}
     restart: unless-stopped
     depends_on:
-      llm_service:
-        condition: service_healthy
+      - llm_service
     environment:
       METIS_LLM_SERVICE_HOST: llm_service
       METIS_LLM_SERVICE_PORT: 3000
@@ -144,10 +144,52 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 90s
 EOF
 
-cp config.local.example.yaml "$RELEASE_CONFIG"
+cat > "$RELEASE_GPU_COMPOSE" <<EOF
+services:
+  llm_service:
+    environment:
+      METIS_LLM_GPU: cuda
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  backend:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+EOF
+
+cat > "$RELEASE_CONFIG" <<EOF
+# Local overrides for the release bundle.
+# Keep indexed folders inside this extracted release directory unless you also
+# add matching bind mounts to docker-compose.yml.
+
+rag:
+  folders_to_index:
+    - "docs"
+    - "memory/long_term"
+
+chat:
+  system_prompt: >
+    You are Metis, a helpful AI assistant.
+    Keep responses concise, accurate, and empathetic.
+EOF
 
 cat > "$RELEASE_NOTES" <<EOF
 # Project Metis ${TAG}
@@ -157,19 +199,28 @@ cat > "$RELEASE_NOTES" <<EOF
 1. Put your GGUF model file in `model/`
 2. Put embedding and reranker model folders in `rag-models/`
 3. Copy `config.local.example.yaml` to `config.local.yaml` if you need local overrides
-4. Run:
+   and keep `rag.folders_to_index` inside this release folder by default
+4. For standard startup, run:
 
 ```sh
 docker compose up
 ```
 
-5. Open `http://localhost:8000`
+5. For GPU-enabled startup, run:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+```
+
+6. Open `http://localhost:8000`
 
 ## Notes
 
 - `config.yaml` is included in this bundle
 - model and embedding files are not included; add your own locally
 - `memory/`, `docs/`, and `.chromadb/` are included as local data folders
+- `docker-compose.gpu.yml` is included for NVIDIA Docker setups
+- `config.local.example.yaml` defaults RAG indexing to `docs` and `memory/long_term`
 
 ## Published Images
 

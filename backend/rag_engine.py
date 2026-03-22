@@ -708,8 +708,15 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
     config = get_config()
     rag_cfg = config.get("rag", {})
     
+    empty_result = {
+        "accepted": [],
+        "overflow": [],
+        "rejected_by_distance": [],
+        "rejected_by_score": [],
+    }
+
     if not rag_cfg.get("enabled", True):
-        return []
+        return empty_result
     
     if top_k is None:
         top_k = int(rag_cfg.get("top_k", 3))
@@ -721,10 +728,10 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
         count = collection.count()
         if count == 0:
             print("Warning: RAG collection is empty. No context to retrieve.")
-            return []
+            return empty_result
     except Exception as e:
         print(f"Error checking collection count: {e}")
-        return []
+        return empty_result
     
     try:
         # Request up to `top_k` from the vector DB
@@ -736,7 +743,7 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
         contexts = []
         # Safely extract results with multiple checks
         if not results:
-            return {"accepted": [], "rejected_by_distance": []}
+            return empty_result
 
         documents = results.get("documents", [])
         metadatas = results.get("metadatas", [])
@@ -744,7 +751,7 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
 
         # Check if we have documents in the first list
         if not documents or len(documents) == 0 or not documents[0]:
-            return []
+            return empty_result
 
         # Iterate through documents and build initial contexts
         for i, doc in enumerate(documents[0]):
@@ -827,7 +834,7 @@ def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[
         import traceback
         print(f"Error retrieving context: {e}")
         print(traceback.format_exc())
-        return []
+        return empty_result
 
 
 def format_context_for_prompt(contexts: List[Dict[str, Any]]) -> str:

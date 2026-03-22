@@ -11,8 +11,8 @@ services:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 90s
+      retries: 10
+      start_period: 300s
 
   backend:
     build:
@@ -20,8 +20,7 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
-      llm_service:
-        condition: service_healthy
+      - llm_service
     environment:
       METIS_LLM_SERVICE_HOST: llm_service
       METIS_LLM_SERVICE_PORT: 3000
@@ -39,4 +38,4 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 90s
