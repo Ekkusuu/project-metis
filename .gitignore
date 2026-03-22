@@ -113,6 +113,7 @@ lerna-debug.log*
 
 # Local machine-specific config overrides
 config.local.yaml
+.docker/
 
 # Python
 __pycache__/
