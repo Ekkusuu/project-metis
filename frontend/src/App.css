@@ -1,9 +1,22 @@
+:root {
+  --bg-root: #07090d;
+  --bg-panel: #0a0d11;
+  --bg-panel-alt: #0f141a;
+  --bg-surface: #161c24;
+  --bg-surface-soft: #1d242d;
+  --border-strong: rgba(159, 169, 180, 0.3);
+  --border-soft: rgba(159, 169, 180, 0.16);
+  --text-primary: #f2efe9;
+  --text-muted: #b6bec8;
+  --text-soft: #858f9b;
+}
+
 #root {
   width: 100%;
   height: 100vh;
   margin: 0;
   padding: 0;
-  background: #0d1117;
+  background: radial-gradient(circle at top, #111720 0%, var(--bg-root) 45%, #05070a 100%);
   overflow: hidden;
 }
 

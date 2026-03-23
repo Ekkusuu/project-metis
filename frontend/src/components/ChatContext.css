@@ -16,13 +16,13 @@
 .context-header h2 {
   margin: 0;
   font-size: 1.25rem;
-  color: #fff;
+  color: #f1f3f5;
   font-weight: 600;
 }
 
 .message-count {
   padding: 0.25rem 0.75rem;
-  background: #2a2a2a;
+  background: rgba(255, 255, 255, 0.04);
   border-radius: 12px;
   font-size: 0.75rem;
   color: #9ca3af;
@@ -45,7 +45,7 @@
   gap: 0.5rem;
   padding: 3rem 1rem;
   text-align: center;
-  color: #6b7280;
+  color: #6f7883;
 }
 
 .empty-state p {
@@ -59,36 +59,36 @@
 
 .context-message {
   padding: 0.75rem;
-  background: #2a2a2a;
+  background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
   border-left: 3px solid transparent;
   font-size: 0.8rem;
 }
 
 .context-message.system {
-  border-left-color: #6366f1;
-  background: #2a2a3a;
+  border-left-color: rgba(214, 220, 226, 0.55);
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .context-message.user {
-  border-left-color: #10b981;
+  border-left-color: rgba(214, 220, 226, 0.34);
 }
 
 .context-message.assistant {
-  border-left-color: #3b82f6;
+  border-left-color: rgba(214, 220, 226, 0.22);
 }
 
 .message-role {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #9ca3af;
+  color: #8a95a3;
   margin-bottom: 0.5rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .message-content {
-  color: #e5e7eb;
+  color: #ded7cc;
   line-height: 1.5;
   word-wrap: break-word;
   white-space: pre-wrap;
@@ -97,7 +97,7 @@
 .message-timestamp {
   margin-top: 0.5rem;
   font-size: 0.65rem;
-  color: #6b7280;
+  color: #6f7883;
 }
 
 .context-list::-webkit-scrollbar {
@@ -105,14 +105,14 @@
 }
 
 .context-list::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: transparent;
 }
 
 .context-list::-webkit-scrollbar-thumb {
-  background: #444;
+  background: rgba(92, 103, 114, 0.2);
   border-radius: 2px;
 }
 
 .context-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: rgba(120, 132, 145, 0.34);
 }

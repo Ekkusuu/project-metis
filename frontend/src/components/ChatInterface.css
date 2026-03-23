@@ -1,19 +1,27 @@
+.chat-shell {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+}
+
 .chat-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   width: 100%;
   flex: 1;
-  background: linear-gradient(to bottom, #0d1117 0%, #161b22 100%);
+  min-width: 0;
+  background: linear-gradient(180deg, #171d24 0%, #1c232c 52%, #161c24 100%);
   padding: 0;
-  box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.02), inset -1px 0 0 rgba(255, 255, 255, 0.02);
 }
 
 .chat-header {
   padding: 2rem 2.5rem;
-  background: rgba(22, 27, 34, 0.6);
+  background: rgba(20, 26, 33, 0.88);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  border-bottom: 1px solid rgba(188, 197, 206, 0.12);
 }
 
 .header-content {
@@ -30,7 +38,7 @@
 .chat-header h1 {
   font-size: 1.75rem;
   margin: 0;
-  color: #f0e7d8;
+  color: var(--text-primary);
   font-weight: 500;
   letter-spacing: 0.5px;
 }
@@ -38,14 +46,14 @@
 .subtitle {
   margin: 0.5rem 0 0 0;
   font-size: 0.95rem;
-  color: #8b949e;
+  color: var(--text-muted);
   opacity: 0.8;
 }
 
 .reset-button {
-  background: linear-gradient(135deg, rgba(139, 148, 158, 0.15) 0%, rgba(110, 118, 129, 0.1) 100%);
-  color: #e6d5c3;
-  border: 1px solid rgba(139, 148, 158, 0.25);
+  background: linear-gradient(135deg, rgba(31, 39, 49, 0.92) 0%, rgba(20, 26, 33, 0.95) 100%);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 0.625rem 1.25rem;
   font-family: 'Courier New', Courier, monospace;
@@ -62,8 +70,8 @@
 }
 
 .reset-button:hover {
-  background: linear-gradient(135deg, rgba(139, 148, 158, 0.25) 0%, rgba(110, 118, 129, 0.2) 100%);
-  border-color: rgba(139, 148, 158, 0.4);
+  background: linear-gradient(135deg, rgba(48, 58, 70, 0.98) 0%, rgba(32, 39, 48, 1) 100%);
+  border-color: rgba(190, 198, 206, 0.34);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   transform: translateY(-1px);
 }
@@ -94,7 +102,7 @@
 }
 
 .loading-history p {
-  color: #8b949e;
+  color: var(--text-muted);
   font-size: 1rem;
   margin: 0;
 }
@@ -104,19 +112,19 @@
 }
 
 .messages-container::-webkit-scrollbar-track {
-  background: rgba(22, 27, 34, 0.3);
+  background: rgba(9, 12, 17, 0.4);
   border-radius: 10px;
 }
 
 .messages-container::-webkit-scrollbar-thumb {
-  background: rgba(88, 96, 105, 0.4);
+  background: rgba(98, 109, 121, 0.34);
   border-radius: 10px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 .messages-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(88, 96, 105, 0.6);
+  background: rgba(120, 132, 145, 0.52);
   background-clip: padding-box;
 }
 
@@ -153,16 +161,22 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.streaming-message-content {
+  min-height: 11rem;
+}
+
 .user-message .message-content {
-  background: linear-gradient(135deg, #2d333b 0%, #22272e 100%);
-  color: #f0e7d8;
-  border: 1px solid rgba(88, 96, 105, 0.3);
+  background: linear-gradient(135deg, #1a2028 0%, #14191f 100%);
+  color: var(--text-primary);
+  border: 1px solid rgba(103, 111, 120, 0.16);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
 }
 
 .ai-message .message-content {
-  background: linear-gradient(135deg, #1c2128 0%, #161b22 100%);
-  color: #e6d5c3;
-  border: 1px solid rgba(48, 54, 61, 0.5);
+  background: linear-gradient(135deg, #12171d 0%, #0d1116 100%);
+  color: #ece7de;
+  border: 1px solid rgba(89, 97, 105, 0.16);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
 }
 
 .message-text {
@@ -170,6 +184,7 @@
   /* Let markdown elements control layout; preserving whitespace here was causing extra gaps */
   white-space: normal;
   font-size: 1.05rem;
+  color: #ddd6cc;
 }
 
 /* Markdown styling */
@@ -198,7 +213,7 @@
 .message-text h4 { font-size: 1.1rem; }
 
 .message-text code {
-  background: rgba(110, 118, 129, 0.2);
+  background: rgba(115, 126, 138, 0.2);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -206,8 +221,8 @@
 }
 
 .message-text pre {
-  background: rgba(13, 17, 23, 0.6);
-  border: 1px solid rgba(48, 54, 61, 0.5);
+  background: rgba(9, 12, 17, 0.88);
+  border: 1px solid rgba(116, 126, 136, 0.24);
   border-radius: 8px;
   padding: 1rem;
   overflow-x: auto;
@@ -253,9 +268,9 @@
 }
 
 .think-toggle {
-  background: rgba(88, 96, 105, 0.12);
-  color: #cbd5e1;
-  border: 1px solid rgba(88, 96, 105, 0.2);
+  background: rgba(31, 38, 47, 0.9);
+  color: #dde4ec;
+  border: 1px solid rgba(120, 131, 142, 0.2);
   padding: 0.25rem 0.5rem;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -264,13 +279,79 @@
 }
 
 .think-content {
-  background: rgba(10, 12, 14, 0.5);
-  border-left: 3px solid rgba(88, 96, 105, 0.4);
+  background: rgba(7, 10, 14, 0.72);
+  border-left: 3px solid rgba(107, 118, 130, 0.34);
   padding: 0.75rem 1rem;
   margin-top: 0.25rem;
   border-radius: 6px;
   font-size: 0.95rem;
-  color: #9fb0c8;
+  color: #b8c2ce;
+}
+
+.planning-trace {
+  margin-top: 0.9rem;
+  border-top: 1px solid rgba(88, 96, 105, 0.18);
+  padding-top: 0.75rem;
+}
+
+.planning-trace-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: rgba(28, 35, 43, 0.92);
+  color: #e7ddd1;
+  border: 1px solid rgba(123, 133, 144, 0.18);
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.planning-trace-toggle:hover {
+  background: rgba(37, 45, 54, 0.96);
+  border-color: rgba(170, 178, 187, 0.24);
+}
+
+.planning-trace-count {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f2efe9;
+  font-weight: 700;
+}
+
+.planning-trace-content {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.planning-trace-item {
+  background: rgba(16, 21, 27, 0.92);
+  border: 1px solid rgba(102, 112, 123, 0.18);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+}
+
+.planning-trace-task {
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.planning-trace-note {
+  color: #c3ccd7;
+  font-size: 0.86rem;
+  line-height: 1.5;
 }
 
 /* Remove duplicate rule that reintroduced margins around list paragraphs */
@@ -284,10 +365,10 @@
 }
 
 .message-text blockquote {
-  border-left: 3px solid rgba(88, 96, 105, 0.5);
+  border-left: 3px solid rgba(98, 109, 121, 0.34);
   padding-left: 1rem;
   margin: 0.75rem 0;
-  color: #8b949e;
+  color: #c1c9d2;
   font-style: italic;
 }
 
@@ -302,7 +383,8 @@
 
 .message-text strong {
   font-weight: 600;
-  color: #f0f6fc;
+  color: #fffaf2;
+  letter-spacing: 0.01em;
 }
 
 .message-text em {
@@ -311,7 +393,7 @@
 
 .message-text hr {
   border: none;
-  border-top: 1px solid rgba(48, 54, 61, 0.5);
+  border-top: 1px solid rgba(74, 84, 94, 0.3);
   margin: 1rem 0;
 }
 
@@ -323,13 +405,13 @@
 
 .message-text th,
 .message-text td {
-  border: 1px solid rgba(48, 54, 61, 0.5);
+  border: 1px solid rgba(74, 84, 94, 0.3);
   padding: 0.5rem;
   text-align: left;
 }
 
 .message-text th {
-  background: rgba(28, 33, 40, 0.6);
+  background: rgba(18, 24, 31, 0.82);
   font-weight: 600;
 }
 
@@ -342,7 +424,7 @@
 .typing-indicator span {
   width: 7px;
   height: 7px;
-  background: linear-gradient(135deg, #8b949e 0%, #6e7681 100%);
+  background: linear-gradient(135deg, #8f98a5 0%, #67707c 100%);
   border-radius: 50%;
   animation: typing 1.4s infinite ease-in-out;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -369,9 +451,9 @@
 
 .input-container {
   padding: 1.75rem 2.5rem 2rem 2.5rem;
-  background: rgba(22, 27, 34, 0.6);
+  background: rgba(18, 24, 31, 0.9);
   backdrop-filter: blur(10px);
-  border-top: 1px solid rgba(48, 54, 61, 0.5);
+  border-top: 1px solid rgba(188, 197, 206, 0.12);
   display: flex;
   gap: 1rem;
   align-items: flex-end;
@@ -379,11 +461,11 @@
 
 .message-input {
   flex: 1;
-  background: rgba(28, 33, 40, 0.8);
-  border: 1px solid rgba(88, 96, 105, 0.3);
+  background: rgba(20, 26, 33, 0.96);
+  border: 1px solid rgba(133, 144, 156, 0.2);
   border-radius: 12px;
   padding: 1rem 1.25rem;
-  color: #f0e7d8;
+  color: var(--text-primary);
   font-family: 'Courier New', Courier, monospace;
   font-size: 1.05rem;
   resize: none;
@@ -397,25 +479,25 @@
 
 .message-input:focus {
   outline: none;
-  border-color: rgba(88, 96, 105, 0.6);
-  background: rgba(28, 33, 40, 0.95);
-  box-shadow: 0 0 0 3px rgba(88, 96, 105, 0.1), inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  border-color: rgba(215, 221, 228, 0.24);
+  background: rgba(18, 24, 31, 0.98);
+  box-shadow: 0 0 0 3px rgba(235, 239, 243, 0.05), inset 0 2px 4px rgba(0, 0, 0, 0.28);
 }
 
 .message-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background: rgba(22, 27, 34, 0.5);
+  background: rgba(12, 17, 22, 0.72);
 }
 
 .message-input::placeholder {
-  color: #6e7681;
+  color: var(--text-soft);
 }
 
 .send-button {
-  background: linear-gradient(135deg, #2d333b 0%, #22272e 100%);
-  color: #f0e7d8;
-  border: 1px solid rgba(88, 96, 105, 0.3);
+  background: linear-gradient(135deg, #2a3440 0%, #212a33 100%);
+  color: var(--text-primary);
+  border: 1px solid rgba(165, 174, 184, 0.2);
   border-radius: 12px;
   padding: 1rem 2rem;
   font-family: 'Courier New', Courier, monospace;
@@ -428,8 +510,8 @@
 }
 
 .send-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #373e47 0%, #2d333b 100%);
-  border-color: rgba(88, 96, 105, 0.5);
+  background: linear-gradient(135deg, #35414e 0%, #28323d 100%);
+  border-color: rgba(222, 228, 234, 0.22);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   transform: translateY(-1px);
 }
@@ -442,7 +524,7 @@
 .send-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background: linear-gradient(135deg, #22272e 0%, #1c2128 100%);
+  background: linear-gradient(135deg, #171d24 0%, #12171d 100%);
 }
 
 /* Edit mode styles */
@@ -569,6 +651,10 @@
 }
 
 @media (max-width: 768px) {
+  .chat-shell {
+    display: block;
+  }
+
   .chat-header {
     padding: 1.5rem 1.75rem;
   }
