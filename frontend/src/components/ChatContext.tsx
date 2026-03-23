@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import './ChatContext.css';
 import { API_URL } from '../lib/api';
+import { BotIcon, SystemIcon, UserIcon } from './Icons';
 
 interface ContextMessage {
   role: 'system' | 'user' | 'assistant';
@@ -44,13 +45,26 @@ function ChatContext({ messages: externalMessages }: ChatContextProps) {
   const getRoleLabel = (role: string) => {
     switch (role) {
       case 'system':
-        return '⚙️ System';
+        return 'System';
       case 'user':
-        return '👤 You';
+        return 'You';
       case 'assistant':
-        return '🤖 Metis';
+        return 'Metis';
       default:
         return role;
+    }
+  };
+
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'system':
+        return <SystemIcon className="message-role-icon" />;
+      case 'user':
+        return <UserIcon className="message-role-icon" />;
+      case 'assistant':
+        return <BotIcon className="message-role-icon" />;
+      default:
+        return null;
     }
   };
 
@@ -83,7 +97,10 @@ function ChatContext({ messages: externalMessages }: ChatContextProps) {
         ) : (
           messages.map((msg, idx) => (
             <div key={idx} className={`context-message ${getRoleClass(msg.role)}`}>
-              <div className="message-role">{getRoleLabel(msg.role)}</div>
+              <div className="message-role">
+                {getRoleIcon(msg.role)}
+                <span>{getRoleLabel(msg.role)}</span>
+              </div>
               <div className="message-content">{msg.content}</div>
               {msg.timestamp && (
                 <div className="message-timestamp">{new Date(msg.timestamp).toLocaleTimeString()}</div>

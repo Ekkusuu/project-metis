@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import RagPanel from './RagPanel';
 import ChatContext from './ChatContext';
+import { BookIcon, ChatBubbleIcon } from './Icons';
 import './Sidebar.css';
 
 type Tab = 'rag' | 'context';
@@ -15,13 +16,15 @@ function Sidebar() {
           className={`tab-button ${activeTab === 'rag' ? 'active' : ''}`}
           onClick={() => setActiveTab('rag')}
         >
-          📚 RAG
+          <BookIcon className="tab-icon" />
+          <span>RAG</span>
         </button>
         <button
           className={`tab-button ${activeTab === 'context' ? 'active' : ''}`}
           onClick={() => setActiveTab('context')}
         >
-          💬 Context
+          <ChatBubbleIcon className="tab-icon" />
+          <span>Context</span>
         </button>
       </div>
 

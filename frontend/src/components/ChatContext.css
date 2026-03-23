@@ -79,6 +79,9 @@
 }
 
 .message-role {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   font-size: 0.75rem;
   font-weight: 600;
   color: #8a95a3;
@@ -106,6 +109,12 @@
 
 .context-list::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.message-role-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
 }
 
 .context-list::-webkit-scrollbar-thumb {

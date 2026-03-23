@@ -98,6 +98,12 @@
   text-align: left;
 }
 
+.rag-button-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
 .rag-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -131,6 +137,11 @@
   background: rgba(255, 255, 255, 0.03);
   color: #d8b8b8;
   border: 1px solid rgba(103, 114, 126, 0.18);
+}
+
+.rag-button.danger .rag-button-icon {
+  transform: scale(1.16);
+  transform-origin: center;
 }
 
 .rag-button.danger:hover:not(:disabled) {
@@ -282,7 +293,17 @@
 }
 
 .result-status {
-  font-size: 0.875rem;
+  width: 1rem;
+  height: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.result-status svg {
+  width: 100%;
+  height: 100%;
 }
 
 .result-file {
