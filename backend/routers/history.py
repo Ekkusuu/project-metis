@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import threading
 
 from fastapi import APIRouter, HTTPException
@@ -53,6 +53,7 @@ class Message(BaseModel):
     sender: str  # 'user' or 'ai'
     timestamp: str
     tokensPerSecond: float | None = None
+    planningNotes: Optional[List[Dict[str, Any]]] = None
 
 
 class ChatHistory(BaseModel):
