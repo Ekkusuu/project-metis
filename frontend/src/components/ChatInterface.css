@@ -354,6 +354,12 @@
   line-height: 1.5;
 }
 
+.button-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
 /* Remove duplicate rule that reintroduced margins around list paragraphs */
 
 .message-text li:first-child {
@@ -627,6 +633,10 @@
   font-size: 1rem;
   backdrop-filter: blur(8px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
 
 .message-content {

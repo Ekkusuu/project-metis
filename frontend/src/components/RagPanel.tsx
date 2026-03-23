@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import './RagPanel.css';
 import { API_URL } from '../lib/api';
+import { CheckIcon, CloseIcon, RefreshIcon, ReindexIcon, TrashIcon } from './Icons';
 
 interface RagStats {
   total_chunks: number;
@@ -101,13 +102,13 @@ function RagPanel() {
       });
       const data = await resp.json();
       setMessage({
-        text: `✓ Reindexed ${data.total_chunks} chunks`,
+        text: `Reindexed ${data.total_chunks} chunks`,
         type: 'success',
       });
       await fetchStats();
     } catch (error) {
       setMessage({
-        text: `✗ Reindex failed: ${error}`,
+        text: `Reindex failed: ${error}`,
         type: 'error',
       });
     } finally {
@@ -129,13 +130,13 @@ function RagPanel() {
       });
       const data = await resp.json();
       setMessage({
-        text: `✓ Cleared ${data.deleted_count} chunks`,
+        text: `Cleared ${data.deleted_count} chunks`,
         type: 'success',
       });
       await fetchStats();
     } catch (error) {
       setMessage({
-        text: `✗ Clear failed: ${error}`,
+        text: `Clear failed: ${error}`,
         type: 'error',
       });
     } finally {
@@ -157,13 +158,13 @@ function RagPanel() {
       });
       const data = await resp.json();
       setMessage({
-        text: `✓ Full reindex complete: ${data.total_chunks} chunks`,
+        text: `Full reindex complete: ${data.total_chunks} chunks`,
         type: 'success',
       });
       await fetchStats();
     } catch (error) {
       setMessage({
-        text: `✗ Full reindex failed: ${error}`,
+        text: `Full reindex failed: ${error}`,
         type: 'error',
       });
     } finally {
@@ -204,7 +205,7 @@ function RagPanel() {
           onClick={handleReindex}
           disabled={isLoading}
         >
-          <span>🔄</span>
+          <RefreshIcon className="rag-button-icon" />
           <span>{isLoading ? 'Processing...' : 'Check for Changes'}</span>
         </button>
 
@@ -213,7 +214,7 @@ function RagPanel() {
           onClick={handleFullReindex}
           disabled={isLoading}
         >
-          <span>🔃</span>
+          <ReindexIcon className="rag-button-icon" />
           <span>Full Reindex</span>
         </button>
 
@@ -222,7 +223,7 @@ function RagPanel() {
           onClick={handleClearAll}
           disabled={isLoading}
         >
-          <span>🗑️</span>
+          <TrashIcon className="rag-button-icon" />
           <span>Clear All</span>
         </button>
       </div>
@@ -263,7 +264,7 @@ function RagPanel() {
                 style={{ cursor: 'pointer' }}
               >
                 <div className="result-header">
-                  <span className="result-status">{result.used ? '✓' : '✗'}</span>
+                  <span className="result-status" aria-hidden="true">{result.used ? <CheckIcon /> : <CloseIcon />}</span>
                   <span className="result-file">{result.source_file.split('\\').pop()}</span>
                 </div>
                 <div className="result-meta">

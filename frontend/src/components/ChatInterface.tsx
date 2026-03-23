@@ -5,6 +5,7 @@ import './ChatInterface.css';
 import 'highlight.js/styles/github-dark.css';
 import { API_URL } from '../lib/api';
 import PlanPanel, { type PlanTask } from './PlanPanel';
+import { EditIcon, RefreshIcon } from './Icons';
 
 interface Message {
   id: string;
@@ -549,7 +550,8 @@ function ChatInterface() {
             <p className="subtitle">Your AI Assistant</p>
           </div>
           <button onClick={handleResetChat} className="reset-button" title="Reset chat">
-            🔄 Reset
+            <RefreshIcon className="button-icon" />
+            <span>Reset</span>
           </button>
         </div>
       </div>
@@ -604,10 +606,10 @@ function ChatInterface() {
                   {message.sender === 'user' && (
                     <button
                       onClick={() => handleEditMessage(message.id, message.text)}
-                      className="edit-message-button"
-                      title="Edit message"
-                    >
-                      ✏️
+                    className="edit-message-button"
+                    title="Edit message"
+                  >
+                      <EditIcon className="button-icon" />
                     </button>
                   )}
                   {message.sender === 'ai' && message.planningNotes && message.planningNotes.length > 0 && (
