@@ -260,37 +260,15 @@ Rebuild only the LLM service from scratch:
 docker compose -f docker-compose.yml -f .docker/docker-compose.generated.yml build --no-cache llm_service
 ```
 
-Publish a Docker GitHub release:
-
-```sh
-./publish_release.sh v1.0.0 --latest
-```
-
-```bat
-publish_release.bat v1.0.0 --latest
-```
-
-By default, the publish scripts push to `ghcr.io/ekkusuu/` using these image names:
-- `project-metis-backend`
-- `project-metis-llm-service`
-
-You can override the registry or namespace with environment variables such as `REGISTRY` and `IMAGE_NAMESPACE`.
-
 ## Publishing a Docker Release
 
-The publish scripts build the Docker images, push them, then create or update a GitHub Release with a ready-to-download zip bundle.
+The simplest setup now is GitHub Actions.
 
-Windows:
-
-```bat
-publish_release.bat v1.0.0 --latest
-```
-
-macOS / Linux:
-
-```sh
-./publish_release.sh v1.0.0 --latest
-```
+When a GitHub Release is published, `.github/workflows/publish-release.yml` will:
+- build the backend and LLM Docker images,
+- push them to `ghcr.io`,
+- generate the downloadable release zip,
+- upload `project-metis-release.zip` to the GitHub Release.
 
 What happens:
 - the backend and LLM images are built and pushed,
@@ -298,11 +276,10 @@ What happens:
 - a zip bundle is generated,
 - the zip is uploaded to the GitHub Release.
 
-Before publishing, make sure:
-- you are logged into the registry, for example `docker login ghcr.io`
-- you are logged into GitHub CLI, for example `gh auth login`
-- your Docker build works locally
-- your tag is the version you want to publish
+To use the GitHub Actions flow:
+- create or publish a GitHub Release with the version tag you want,
+- make sure the repository Actions permissions allow `contents: write` and `packages: write`,
+- wait for the `Publish Release` workflow to finish.
 
 The release zip contains:
 - `docker-compose.yml`
@@ -334,8 +311,7 @@ Project Metis/
 |- config.local.yaml        # optional, git-ignored
 |- docker-compose.yml
 |- prepare_docker_release.py
-|- publish_release.bat
-|- publish_release.sh
+|- generate_release_bundle.py
 |- setup.bat
 |- setup.sh
 |- start.bat
