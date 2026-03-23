@@ -21,7 +21,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ${{ github.repository_owner }}
   BACKEND_IMAGE: project-metis-backend
   LLM_IMAGE: project-metis-llm-service
   TORCH_INDEX_URL: https://download.pytorch.org/whl/cu126
@@ -37,21 +36,23 @@ jobs:
         id: vars
         shell: bash
         run: |
+          OWNER_LOWER=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG="${{ github.event.release.tag_name }}"
           else
             TAG="${{ inputs.tag }}"
           fi
           if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.latest }}" = "true" ]; then
-            BACKEND_TAGS="${REGISTRY}/${IMAGE_NAMESPACE}/${BACKEND_IMAGE}:${TAG}\n${REGISTRY}/${IMAGE_NAMESPACE}/${BACKEND_IMAGE}:latest"
-            LLM_TAGS="${REGISTRY}/${IMAGE_NAMESPACE}/${LLM_IMAGE}:${TAG}\n${REGISTRY}/${IMAGE_NAMESPACE}/${LLM_IMAGE}:latest"
+            BACKEND_TAGS="${REGISTRY}/${OWNER_LOWER}/${BACKEND_IMAGE}:${TAG}\n${REGISTRY}/${OWNER_LOWER}/${BACKEND_IMAGE}:latest"
+            LLM_TAGS="${REGISTRY}/${OWNER_LOWER}/${LLM_IMAGE}:${TAG}\n${REGISTRY}/${OWNER_LOWER}/${LLM_IMAGE}:latest"
           else
-            BACKEND_TAGS="${REGISTRY}/${IMAGE_NAMESPACE}/${BACKEND_IMAGE}:${TAG}"
-            LLM_TAGS="${REGISTRY}/${IMAGE_NAMESPACE}/${LLM_IMAGE}:${TAG}"
+            BACKEND_TAGS="${REGISTRY}/${OWNER_LOWER}/${BACKEND_IMAGE}:${TAG}"
+            LLM_TAGS="${REGISTRY}/${OWNER_LOWER}/${LLM_IMAGE}:${TAG}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "backend_ref=${REGISTRY}/${IMAGE_NAMESPACE}/${BACKEND_IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
-          echo "llm_ref=${REGISTRY}/${IMAGE_NAMESPACE}/${LLM_IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "owner_lower=${OWNER_LOWER}" >> "$GITHUB_OUTPUT"
+          echo "backend_ref=${REGISTRY}/${OWNER_LOWER}/${BACKEND_IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "llm_ref=${REGISTRY}/${OWNER_LOWER}/${LLM_IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
           {
             echo 'backend_tags<<EOF'
             printf '%b\n' "$BACKEND_TAGS"
