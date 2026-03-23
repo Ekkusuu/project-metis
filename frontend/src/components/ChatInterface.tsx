@@ -4,6 +4,7 @@ import rehypeHighlight from 'rehype-highlight';
 import './ChatInterface.css';
 import 'highlight.js/styles/github-dark.css';
 import { API_URL } from '../lib/api';
+import PlanPanel, { type PlanTask } from './PlanPanel';
 
 interface Message {
   id: string;
@@ -11,6 +12,49 @@ interface Message {
   sender: 'user' | 'ai';
   timestamp: Date;
   tokensPerSecond?: number;
+  planningNotes?: Array<{
+    taskId?: string;
+    taskContent?: string;
+    note: string;
+  }>;
+}
+
+function PlanningTrace({ notes, messageId, isActive }: { notes: NonNullable<Message['planningNotes']>; messageId: string; isActive: boolean }) {
+  const [open, setOpen] = useState(isActive);
+
+  useEffect(() => {
+    if (isActive) {
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  }, [isActive]);
+
+  if (!notes.length) return null;
+
+  return (
+    <div className="planning-trace">
+      <button
+        className="planning-trace-toggle"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-controls={`${messageId}-planning-trace`}
+      >
+        <span>{open ? 'Hide planning trace' : 'Show planning trace'}</span>
+        <span className="planning-trace-count">{notes.length}</span>
+      </button>
+      {open && (
+        <div id={`${messageId}-planning-trace`} className="planning-trace-content">
+          {notes.map((entry, index) => (
+            <div key={`${messageId}-note-${index}`} className="planning-trace-item">
+              {entry.taskContent && <div className="planning-trace-task">{entry.taskContent}</div>}
+              <div className="planning-trace-note">{entry.note}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Component: render message text and collapse any <think> sections by default
@@ -107,6 +151,7 @@ function MessageText({ rawText, messageId }: { rawText: string; messageId: strin
 }
 function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [tasks, setTasks] = useState<PlanTask[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showTypingIndicator, setShowTypingIndicator] = useState(false);
@@ -188,6 +233,142 @@ function ChatInterface() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const streamChatResponse = async (history: Array<{ role: string; content: string }>) => {
+    setTasks([]);
+
+    const resp = await fetch(`${API_URL}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history }),
+    });
+
+    if (!resp.ok) {
+      const detail = await resp.text();
+      throw new Error(`Backend error ${resp.status}: ${detail}`);
+    }
+
+    window.dispatchEvent(new CustomEvent('ragRetrievalComplete'));
+
+    const reader = resp.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let firstTokenReceived = false;
+    const aiMessageId = (Date.now() + 1).toString();
+    let messageCreated = false;
+
+    const ensureAiMessage = () => {
+      if (messageCreated) return;
+      messageCreated = true;
+      const aiMessage: Message = {
+        id: aiMessageId,
+        text: '',
+        sender: 'ai',
+        timestamp: new Date(),
+        planningNotes: [],
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+    };
+
+    if (!reader) throw new Error('No response body');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const chunk = JSON.parse(line);
+          if (chunk.type === 'task_snapshot' && Array.isArray(chunk.tasks)) {
+            setTasks(chunk.tasks);
+            continue;
+          }
+
+          if (chunk.type === 'task_note' && chunk.note) {
+            ensureAiMessage();
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === aiMessageId
+                  ? {
+                      ...msg,
+                      planningNotes: [
+                        ...(msg.planningNotes || []),
+                        {
+                          taskId: chunk.task_id,
+                          taskContent: chunk.task_content,
+                          note: chunk.note,
+                        },
+                      ],
+                    }
+                  : msg
+              )
+            );
+            continue;
+          }
+
+          if (chunk.delta !== undefined && chunk.delta !== '') {
+            if (!firstTokenReceived) {
+              firstTokenReceived = true;
+              setShowTypingIndicator(false);
+              ensureAiMessage();
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === aiMessageId
+                    ? { ...msg, text: chunk.delta }
+                    : msg
+                )
+              );
+            } else {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === aiMessageId
+                    ? { ...msg, text: msg.text + chunk.delta }
+                    : msg
+                )
+              );
+            }
+          }
+
+          if (chunk.done) {
+            if (Array.isArray(chunk.tasks)) {
+              setTasks(chunk.tasks);
+            }
+            if (chunk.tokens_per_second) {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === aiMessageId
+                    ? { ...msg, tokensPerSecond: chunk.tokens_per_second }
+                    : msg
+                )
+              );
+            }
+
+            if (chunk.trimmed_messages && Array.isArray(chunk.trimmed_messages)) {
+              const trimmedCount = history.length - chunk.trimmed_messages.length;
+              if (trimmedCount > 0) {
+                console.log(`Context limit reached: removed ${trimmedCount} oldest message(s)`);
+                setMessages((prev) => {
+                  const messagesToKeep = prev.length - trimmedCount;
+                  return prev.slice(-messagesToKeep);
+                });
+              }
+            }
+          }
+        } catch (parseErr) {
+          console.warn('Failed to parse chunk:', line, parseErr);
+        }
+      }
+    }
+
+    setIsTyping(false);
+    setShowTypingIndicator(false);
+    window.dispatchEvent(new CustomEvent('messageComplete'));
   };
 
   const saveChatHistory = async () => {
@@ -280,102 +461,7 @@ function ChatInterface() {
         { role: 'user', content: userMessage.text },
       ];
 
-      const resp = await fetch(`${API_URL}/chat/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, max_tokens: 512 }),
-      });
-
-      if (!resp.ok) {
-        const detail = await resp.text();
-        throw new Error(`Backend error ${resp.status}: ${detail}`);
-      }
-
-      // Dispatch event to show RAG results immediately (before response completes)
-      window.dispatchEvent(new CustomEvent('ragRetrievalComplete'));
-
-      // Read NDJSON stream
-      const reader = resp.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let firstTokenReceived = false;
-      const aiMessageId = (Date.now() + 1).toString();
-
-      if (!reader) throw new Error('No response body');
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const chunk = JSON.parse(line);
-            if (chunk.delta !== undefined && chunk.delta !== '') {
-              // On first token, create the AI message (keep `isTyping` true until
-              // the entire stream completes to avoid autosave during streaming).
-              if (!firstTokenReceived) {
-                firstTokenReceived = true;
-                // Hide the three-dot typing indicator as soon as streaming starts
-                setShowTypingIndicator(false);
-                const aiMessage: Message = {
-                  id: aiMessageId,
-                  text: chunk.delta,
-                  sender: 'ai',
-                  timestamp: new Date(),
-                };
-                setMessages((prev) => [...prev, aiMessage]);
-              } else {
-                // Append subsequent tokens to the AI message
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === aiMessageId
-                      ? { ...msg, text: msg.text + chunk.delta }
-                      : msg
-                  )
-                );
-              }
-            }
-            // Check for final chunk with performance stats
-            if (chunk.done && chunk.tokens_per_second) {
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === aiMessageId
-                    ? { ...msg, tokensPerSecond: chunk.tokens_per_second }
-                    : msg
-                )
-              );
-              
-              // Handle context trimming - remove messages that were trimmed by backend
-              if (chunk.trimmed_messages && Array.isArray(chunk.trimmed_messages)) {
-                const trimmedCount = history.length - chunk.trimmed_messages.length;
-                if (trimmedCount > 0) {
-                  console.log(`Context limit reached: removed ${trimmedCount} oldest message(s)`);
-                  // Remove oldest messages from frontend state (keep system + trimmed messages + new AI response)
-                  setMessages((prev) => {
-                    // Find how many messages to remove from the start (excluding initial AI greeting)
-                    const messagesToKeep = prev.length - trimmedCount;
-                    return prev.slice(-messagesToKeep);
-                  });
-                }
-              }
-            }
-          } catch (parseErr) {
-            console.warn('Failed to parse chunk:', line, parseErr);
-          }
-        }
-      }
-
-      // Stream finished — hide typing indicator and clear typing state.
-      setIsTyping(false);
-      setShowTypingIndicator(false);
-
-      // Dispatch event to notify components that message is complete
-      window.dispatchEvent(new CustomEvent('messageComplete'));
+      await streamChatResponse(history);
     } catch (err: any) {
       setIsTyping(false);
       setShowTypingIndicator(false);
@@ -439,95 +525,7 @@ function ChatInterface() {
         { role: 'user', content: editingText },
       ];
 
-      const resp = await fetch(`${API_URL}/chat/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, max_tokens: 512 }),
-      });
-
-      if (!resp.ok) {
-        const detail = await resp.text();
-        throw new Error(`Backend error ${resp.status}: ${detail}`);
-      }
-
-      window.dispatchEvent(new CustomEvent('ragRetrievalComplete'));
-
-      const reader = resp.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let firstTokenReceived = false;
-      const aiMessageId = (Date.now() + 1).toString();
-
-      if (!reader) throw new Error('No response body');
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const chunk = JSON.parse(line);
-            if (chunk.delta !== undefined && chunk.delta !== '') {
-              // Create the AI message on first token but keep `isTyping` true
-              // until the entire stream completes to avoid autosave spamming.
-              if (!firstTokenReceived) {
-                firstTokenReceived = true;
-                // Hide the three-dot typing indicator when streaming starts
-                setShowTypingIndicator(false);
-                const aiMessage: Message = {
-                  id: aiMessageId,
-                  text: chunk.delta,
-                  sender: 'ai',
-                  timestamp: new Date(),
-                };
-                setMessages((prev) => [...prev, aiMessage]);
-              } else {
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === aiMessageId
-                      ? { ...msg, text: msg.text + chunk.delta }
-                      : msg
-                  )
-                );
-              }
-            }
-            if (chunk.done && chunk.tokens_per_second) {
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === aiMessageId
-                    ? { ...msg, tokensPerSecond: chunk.tokens_per_second }
-                    : msg
-                )
-              );
-              
-              // Handle context trimming
-              if (chunk.trimmed_messages && Array.isArray(chunk.trimmed_messages)) {
-                const trimmedCount = history.length - chunk.trimmed_messages.length;
-                if (trimmedCount > 0) {
-                  console.log(`Context limit reached: removed ${trimmedCount} oldest message(s)`);
-                  setMessages((prev) => {
-                    const messagesToKeep = prev.length - trimmedCount;
-                    return prev.slice(-messagesToKeep);
-                  });
-                }
-              }
-            }
-          } catch (parseErr) {
-            console.warn('Failed to parse chunk:', line, parseErr);
-          }
-        }
-      }
-
-      // Stream finished — now hide typing indicator.
-      setIsTyping(false);
-      setShowTypingIndicator(false);
-
-      window.dispatchEvent(new CustomEvent('messageComplete'));
+      await streamChatResponse(history);
     } catch (err: any) {
       setIsTyping(false);
       setShowTypingIndicator(false);
@@ -542,7 +540,8 @@ function ChatInterface() {
   };
 
   return (
-    <div className="chat-container">
+    <div className="chat-shell">
+      <div className="chat-container">
       <div className="chat-header">
         <div className="header-content">
           <div className="header-text">
@@ -567,12 +566,17 @@ function ChatInterface() {
           </div>
         ) : (
           <>
-            {messages.map((message) => (
+            {messages.map((message) => {
+              const isLatestMessage = message.id === messages[messages.length - 1]?.id;
+              const isStreamingMessage = message.sender === 'ai' && isTyping && isLatestMessage;
+              const showPlanningTrace = isStreamingMessage && message.text.trim().length === 0;
+
+              return (
           <div
             key={message.id}
             className={`message ${message.sender === 'user' ? 'user-message' : 'ai-message'}`}
           >
-            <div className="message-content">
+            <div className={`message-content ${isStreamingMessage ? 'streaming-message-content' : ''}`}>
               {editingMessageId === message.id ? (
                 // Edit mode
                 <div className="edit-mode">
@@ -606,6 +610,13 @@ function ChatInterface() {
                       ✏️
                     </button>
                   )}
+                  {message.sender === 'ai' && message.planningNotes && message.planningNotes.length > 0 && (
+                    <PlanningTrace
+                      notes={message.planningNotes}
+                      messageId={message.id}
+                      isActive={showPlanningTrace}
+                    />
+                  )}
                   {message.tokensPerSecond && (
                     <div className="message-meta" style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '4px' }}>
                       {message.tokensPerSecond} tokens/sec
@@ -615,7 +626,8 @@ function ChatInterface() {
               )}
             </div>
           </div>
-        ))}
+              );
+            })}
         {showTypingIndicator && (
           <div className="message ai-message">
             <div className="message-content">
@@ -647,6 +659,8 @@ function ChatInterface() {
           {isTyping ? 'Wait...' : 'Send'}
         </button>
       </div>
+      </div>
+      <PlanPanel tasks={tasks} isTyping={isTyping} />
     </div>
   );
 }
