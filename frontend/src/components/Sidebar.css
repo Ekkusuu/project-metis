@@ -1,8 +1,9 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  background: #1e1e1e;
-  border-right: 1px solid #333;
+  background: linear-gradient(180deg, #05070a 0%, #090d12 100%);
+  border-right: 1px solid rgba(188, 197, 206, 0.12);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.02);
   height: 100vh;
   width: 320px;
   overflow: hidden;
@@ -10,8 +11,8 @@
 
 .sidebar-tabs {
   display: flex;
-  background: #2a2a2a;
-  border-bottom: 1px solid #333;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(188, 197, 206, 0.1);
 }
 
 .tab-button {
@@ -19,7 +20,7 @@
   padding: 1rem;
   background: transparent;
   border: none;
-  color: #9ca3af;
+  color: #8a95a3;
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
@@ -28,14 +29,14 @@
 }
 
 .tab-button:hover {
-  background: #333;
-  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d8dde3;
 }
 
 .tab-button.active {
-  color: #fff;
-  background: #1e1e1e;
-  border-bottom-color: #3b82f6;
+  color: #f1f3f5;
+  background: rgba(255, 255, 255, 0.055);
+  border-bottom-color: rgba(255, 255, 255, 0.85);
 }
 
 .sidebar-content {
@@ -49,14 +50,14 @@
 }
 
 .sidebar-content::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: transparent;
 }
 
 .sidebar-content::-webkit-scrollbar-thumb {
-  background: #444;
+  background: rgba(92, 103, 114, 0.2);
   border-radius: 3px;
 }
 
 .sidebar-content::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: rgba(120, 132, 145, 0.34);
 }
