@@ -13,6 +13,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+LABEL org.opencontainers.image.source="https://github.com/Ekkusuu/project-metis" \
+      org.opencontainers.image.description="Project Metis backend" \
+      org.opencontainers.image.licenses="MIT"
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 

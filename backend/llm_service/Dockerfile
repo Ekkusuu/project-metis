@@ -2,6 +2,10 @@ FROM nvidia/cuda:12.6.3-devel-ubuntu22.04
 
 WORKDIR /app/backend/llm_service
 
+LABEL org.opencontainers.image.source="https://github.com/Ekkusuu/project-metis" \
+      org.opencontainers.image.description="Project Metis LLM service" \
+      org.opencontainers.image.licenses="MIT"
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
