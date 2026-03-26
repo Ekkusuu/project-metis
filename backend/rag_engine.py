@@ -21,6 +21,15 @@ _reranker_model = None
 _file_metadata_path: Optional[Path] = None
 
 
+def reset_rag_state() -> None:
+    """Clear cached RAG clients/models so config changes apply immediately."""
+    global _chroma_client, _collection, _reranker_model, _file_metadata_path
+    _chroma_client = None
+    _collection = None
+    _reranker_model = None
+    _file_metadata_path = None
+
+
 def get_file_metadata_path() -> Path:
     """Get the path to the file metadata tracking JSON."""
     global _file_metadata_path

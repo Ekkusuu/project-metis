@@ -79,6 +79,19 @@ export function ChatBubbleIcon(props: IconProps) {
   );
 }
 
+export function SlidersIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M4 5h12" />
+      <circle cx="8" cy="5" r="1.7" />
+      <path d="M4 10h12" />
+      <circle cx="12" cy="10" r="1.7" />
+      <path d="M4 15h12" />
+      <circle cx="6.5" cy="15" r="1.7" />
+    </BaseIcon>
+  );
+}
+
 export function SystemIcon(props: IconProps) {
   return (
     <BaseIcon {...props}>
