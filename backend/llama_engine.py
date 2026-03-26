@@ -90,6 +90,33 @@ def get_config() -> Dict[str, Any]:
     return load_config()
 
 
+def reset_config_cache() -> None:
+    """Clear the cached configuration so future reads reload from disk."""
+    global _config
+    _config = None
+
+
+def get_local_config() -> Dict[str, Any]:
+    """Get config.local.yaml contents without merging defaults."""
+    if not LOCAL_CONFIG_PATH.exists():
+        return {}
+
+    try:
+        with open(LOCAL_CONFIG_PATH, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        return raw if isinstance(raw, dict) else {}
+    except Exception as e:
+        print(f"Warning: Failed to load config.local.yaml: {e}")
+        return {}
+
+
+def save_local_config(config: Dict[str, Any]) -> None:
+    """Persist machine-specific overrides to config.local.yaml."""
+    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=False)
+    reset_config_cache()
+
+
 def get_llm_service_url() -> str:
     """Get the LLM service base URL from config."""
     config = get_config()

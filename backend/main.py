@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from backend.routers.chat import router as chat_router
 from backend.routers.history import router as history_router
 from backend.routers.memory import router as memory_router
+from backend.routers.settings import router as settings_router
 from backend.llama_engine import get_config
 
 app = FastAPI(title="Project Metis Backend")
@@ -14,7 +15,7 @@ app = FastAPI(title="Project Metis Backend")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
 FRONTEND_INDEX_FILE = FRONTEND_DIST_DIR / "index.html"
-API_PREFIXES = {"chat", "history", "memory", "rag", "health", "docs", "redoc", "openapi.json"}
+API_PREFIXES = {"chat", "history", "memory", "rag", "settings", "health", "docs", "redoc", "openapi.json"}
 
 # Allow frontend dev server (Vite default 5173) and local origins
 app.add_middleware(
@@ -33,6 +34,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(history_router)
 app.include_router(memory_router)
+app.include_router(settings_router)
 
 
 @app.get("/", tags=["root"], include_in_schema=False)

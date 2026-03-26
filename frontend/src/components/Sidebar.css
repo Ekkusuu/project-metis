@@ -9,10 +9,17 @@
   overflow: hidden;
 }
 
+.sidebar-topbar {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid rgba(188, 197, 206, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .sidebar-tabs {
   display: flex;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid rgba(188, 197, 206, 0.1);
+  background: transparent;
+  flex: 1;
 }
 
 .tab-button {
@@ -49,6 +56,24 @@
   border-bottom-color: rgba(255, 255, 255, 0.85);
 }
 
+.sidebar-settings-button {
+  width: 3.25rem;
+  border: none;
+  border-left: 1px solid rgba(188, 197, 206, 0.08);
+  background: transparent;
+  color: #c9d0d8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-settings-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1f3f5;
+}
+
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
@@ -70,4 +95,26 @@
 
 .sidebar-content::-webkit-scrollbar-thumb:hover {
   background: rgba(120, 132, 145, 0.34);
+}
+
+.settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 8, 0.72);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 60;
+}
+
+.settings-modal-shell {
+  width: min(980px, 100%);
+  max-height: 90vh;
+  border: 1px solid rgba(188, 197, 206, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0d1218 0%, #111720 100%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
 }
