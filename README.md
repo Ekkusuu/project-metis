@@ -289,6 +289,8 @@ The release zip contains:
 - `RELEASE.md`
 - `model/`, `rag-models/`, `memory/`, `docs/`, `.chromadb/`
 
+The default release images are published for both `linux/amd64` and `linux/arm64`, so the standard `docker compose up` flow works on Intel/AMD Linux and Apple Silicon Docker setups.
+
 Default published image names:
 - `ghcr.io/ekkusuu/project-metis-backend:<tag>`
 - `ghcr.io/ekkusuu/project-metis-llm-service:<tag>`
