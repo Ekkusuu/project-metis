@@ -20,11 +20,11 @@ LABEL org.opencontainers.image.source="https://github.com/Ekkusuu/project-metis"
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
+ARG TORCH_INDEX_URL=
 
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir --index-url ${TORCH_INDEX_URL} torch torchvision torchaudio \
+    && if [ -n "$TORCH_INDEX_URL" ]; then pip install --no-cache-dir --index-url "$TORCH_INDEX_URL" torch torchvision torchaudio; else pip install --no-cache-dir torch torchvision torchaudio; fi \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./backend/
