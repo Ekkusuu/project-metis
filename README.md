@@ -291,6 +291,8 @@ The release zip contains:
 
 The default release images are published for both `linux/amd64` and `linux/arm64`, so the standard `docker compose up` flow works on Intel/AMD Linux and Apple Silicon Docker setups.
 
+On some platforms, the LLM service may take longer on first startup while `node-llama-cpp` prepares a compatible local build.
+
 Default published image names:
 - `ghcr.io/ekkusuu/project-metis-backend:<tag>`
 - `ghcr.io/ekkusuu/project-metis-llm-service:<tag>`

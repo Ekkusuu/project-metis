@@ -13,8 +13,6 @@ RUN apt-get update \
 COPY backend/llm_service/package.json backend/llm_service/package-lock.json ./
 RUN npm ci --omit=dev
 
-RUN npx --no node-llama-cpp source download
-
 COPY backend/llm_service/server.js ./server.js
 COPY config.yaml /app/config.yaml
 
