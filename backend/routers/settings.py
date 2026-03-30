@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -70,6 +71,25 @@ class SettingsPayload(BaseModel):
     memory: MemorySettings
 
 
+class SettingsPreset(BaseModel):
+    id: str
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+    settings: SettingsPayload
+
+
+class SettingsPresetCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+    settings: SettingsPayload
+
+
+class SettingsPresetUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+    settings: SettingsPayload
+
+
 def _extract_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     chat_cfg = config.get("chat", {})
     rag_cfg = config.get("rag", {})
@@ -98,6 +118,97 @@ def _extract_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _normalize_presets(raw: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        preset_id = str(item.get("id") or uuid4())
+        title = str(item.get("title") or "Untitled preset").strip()
+        description = str(item.get("description") or "").strip()
+        settings_data = item.get("settings")
+        if not isinstance(settings_data, dict):
+            continue
+        try:
+            validated = SettingsPayload(**settings_data)
+        except Exception:
+            continue
+        normalized.append(
+            {
+                "id": preset_id,
+                "title": title[:80],
+                "description": description[:240],
+                "settings": validated.model_dump(),
+            }
+        )
+    return normalized
+
+
+def _read_presets() -> List[Dict[str, Any]]:
+    local = get_local_config()
+    return _normalize_presets(local.get("settings_presets", []))
+
+
+def _write_presets(presets: List[Dict[str, Any]]) -> None:
+    local = get_local_config()
+    local["settings_presets"] = presets
+    save_local_config(local)
+
+
+def _read_active_preset_id() -> Optional[str]:
+    local = get_local_config()
+    value = local.get("active_settings_preset_id")
+    return str(value) if isinstance(value, str) and value.strip() else None
+
+
+def _write_active_preset_id(preset_id: Optional[str]) -> None:
+    local = get_local_config()
+    if preset_id:
+      local["active_settings_preset_id"] = preset_id
+    else:
+      local.pop("active_settings_preset_id", None)
+    save_local_config(local)
+
+
+def _current_settings_preset() -> Dict[str, Any]:
+    return {
+        "id": "current-settings",
+        "title": "Default settings",
+        "description": "The baseline configuration Metis uses when no saved preset is selected.",
+        "settings": _extract_settings(get_config()),
+        "readonly": True,
+    }
+
+
+def _apply_settings_override(overrides: Dict[str, Any]) -> Dict[str, Any]:
+    current = get_config()
+    previous = _extract_settings(current)
+
+    save_local_config(overrides)
+    reset_config_cache()
+    reset_rag_state()
+
+    applied = _extract_settings(get_config())
+    rag_before = previous.get("rag", {})
+    rag_after = applied.get("rag", {})
+    reindexed = False
+    if rag_after.get("enabled") and rag_before != rag_after:
+        try:
+            index_all_folders(clear_existing=False)
+            reindexed = True
+        except Exception as e:
+            print(f"Warning: settings save succeeded but reindex failed: {e}")
+
+    return {
+        "status": "success",
+        "settings": applied,
+        "reindexed": reindexed,
+    }
+
+
 @router.get("/settings")
 def get_settings() -> Dict[str, Any]:
     current = _extract_settings(get_config())
@@ -106,35 +217,100 @@ def get_settings() -> Dict[str, Any]:
     return {
         "settings": current,
         "local_overrides": local,
+        "current_preset": _current_settings_preset(),
+        "active_preset_id": _read_active_preset_id(),
+        "presets": _read_presets(),
     }
 
 
 @router.put("/settings")
 def update_settings(payload: SettingsPayload) -> Dict[str, Any]:
     overrides = payload.model_dump()
-    current = get_config()
-    previous = _extract_settings(current)
 
     try:
-        save_local_config(overrides)
-        reset_config_cache()
-        reset_rag_state()
-
-        applied = _extract_settings(get_config())
-        rag_before = previous.get("rag", {})
-        rag_after = applied.get("rag", {})
-        reindexed = False
-        if rag_after.get("enabled") and rag_before != rag_after:
-            try:
-                index_all_folders(clear_existing=False)
-                reindexed = True
-            except Exception as e:
-                print(f"Warning: settings save succeeded but reindex failed: {e}")
-
-        return {
-            "status": "success",
-            "settings": applied,
-            "reindexed": reindexed,
-        }
+        local = get_local_config()
+        local.update(overrides)
+        local.pop("active_settings_preset_id", None)
+        result = _apply_settings_override(local)
+        result["current_preset"] = _current_settings_preset()
+        result["active_preset_id"] = None
+        result["presets"] = _read_presets()
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update settings: {e}")
+
+
+@router.post("/settings/presets")
+def create_settings_preset(payload: SettingsPresetCreate) -> Dict[str, Any]:
+    try:
+        presets = _read_presets()
+        preset = {
+            "id": str(uuid4()),
+            "title": payload.title.strip(),
+            "description": payload.description.strip(),
+            "settings": payload.settings.model_dump(),
+        }
+        presets.append(preset)
+        _write_presets(presets)
+        return {"status": "success", "preset": preset, "current_preset": _current_settings_preset(), "active_preset_id": _read_active_preset_id(), "presets": presets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save preset: {e}")
+
+
+@router.put("/settings/presets/{preset_id}")
+def update_settings_preset(preset_id: str, payload: SettingsPresetUpdate) -> Dict[str, Any]:
+    presets = _read_presets()
+    index = next((i for i, item in enumerate(presets) if item.get("id") == preset_id), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    updated = {
+        "id": preset_id,
+        "title": payload.title.strip(),
+        "description": payload.description.strip(),
+        "settings": payload.settings.model_dump(),
+    }
+    presets[index] = updated
+    try:
+        _write_presets(presets)
+        return {"status": "success", "preset": updated, "current_preset": _current_settings_preset(), "active_preset_id": _read_active_preset_id(), "presets": presets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update preset: {e}")
+
+
+@router.delete("/settings/presets/{preset_id}")
+def delete_settings_preset(preset_id: str) -> Dict[str, Any]:
+    presets = _read_presets()
+    next_presets = [item for item in presets if item.get("id") != preset_id]
+    if len(next_presets) == len(presets):
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    try:
+        active_id = _read_active_preset_id()
+        if active_id == preset_id:
+            _write_active_preset_id(None)
+        _write_presets(next_presets)
+        return {"status": "success", "current_preset": _current_settings_preset(), "active_preset_id": _read_active_preset_id(), "presets": next_presets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete preset: {e}")
+
+
+@router.put("/settings/presets/{preset_id}/apply")
+def apply_settings_preset(preset_id: str) -> Dict[str, Any]:
+    presets = _read_presets()
+    preset = next((item for item in presets if item.get("id") == preset_id), None)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    try:
+        local = get_local_config()
+        local.update(preset.get("settings", {}))
+        local["active_settings_preset_id"] = preset_id
+        result = _apply_settings_override(local)
+        result["preset"] = preset
+        result["current_preset"] = _current_settings_preset()
+        result["active_preset_id"] = preset_id
+        result["presets"] = presets
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to apply preset: {e}")
