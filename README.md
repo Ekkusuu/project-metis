@@ -100,6 +100,8 @@ macOS / Linux:
 sh ./start.sh
 ```
 
+These scripts now open the app in the browser automatically once the local services are ready.
+
 Or run each service manually:
 
 ```sh
@@ -149,6 +151,8 @@ macOS / Linux / Git Bash:
 ```sh
 ./start_docker.sh
 ```
+
+These wrappers also open the app automatically once the Docker services are ready.
 
 ### No GPU
 

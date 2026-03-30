@@ -34,6 +34,9 @@ if defined GPU_FLAG (
 )
 if errorlevel 1 exit /b %errorlevel%
 
+echo Waiting for Docker services to become ready and opening the app...
+start "Metis Docker Browser Launcher" /min cmd /c "python open_when_ready.py --url http://localhost:8000 --wait-for http://localhost:3000/health --wait-for http://localhost:8000/health --timeout 600"
+
 echo Starting Docker stack...
 if defined BUILD_FLAG (
     docker compose -f docker-compose.yml -f .docker/docker-compose.generated.yml up --build %FORWARD_ARGS%

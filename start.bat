@@ -22,6 +22,10 @@ REM Start the frontend dev server
 echo Starting Frontend (Vite)...
 start "Metis Frontend" cmd /k "cd frontend && npm run dev"
 
+REM Open the app once all services are ready
+echo Waiting for services to become ready and opening the app...
+start "Metis Browser Launcher" /min cmd /c "python open_when_ready.py --url http://localhost:5173 --wait-for http://localhost:3000/health --wait-for http://localhost:8000/health --wait-for http://localhost:5173 --timeout 300"
+
 echo.
 echo ============================================================
 echo All services started!
