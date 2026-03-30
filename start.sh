@@ -77,6 +77,12 @@ echo "Starting Frontend (Vite)..."
 ) &
 FRONTEND_PID=$!
 
+echo "Waiting for services to become ready and opening the app..."
+(
+  cd "$SCRIPT_DIR" || exit 1
+  "$PYTHON_BIN" open_when_ready.py --url http://localhost:5173 --wait-for http://localhost:3000/health --wait-for http://localhost:8000/health --wait-for http://localhost:5173 --timeout 300
+) &
+
 echo
 echo "============================================================"
 echo "All services started"
