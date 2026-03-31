@@ -19,7 +19,28 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-TORCH_INDEX_URL=${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}
+OS_NAME=$(uname -s)
+DEFAULT_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
+
+install_torch() {
+  echo "Installing PyTorch..."
+
+  "$PYTHON_BIN" -m pip uninstall -y torch torchvision torchaudio >/dev/null 2>&1 || true
+
+  if [ -n "${TORCH_INDEX_URL:-}" ]; then
+    echo "Using custom PyTorch index: $TORCH_INDEX_URL"
+    "$PYTHON_BIN" -m pip install torch torchvision torchaudio --index-url "$TORCH_INDEX_URL" || return $?
+  elif [ "$OS_NAME" = "Darwin" ]; then
+    echo "Detected macOS; installing the default PyTorch wheels with Apple Silicon MPS support when available."
+    "$PYTHON_BIN" -m pip install torch torchvision torchaudio || return $?
+  else
+    echo "Using default PyTorch index: $DEFAULT_TORCH_INDEX_URL"
+    "$PYTHON_BIN" -m pip install torch torchvision torchaudio --index-url "$DEFAULT_TORCH_INDEX_URL" || return $?
+  fi
+
+  echo "PyTorch installed."
+  return 0
+}
 
 install_python() {
   echo "Installing Python dependencies..."
@@ -30,12 +51,11 @@ install_python() {
 
   "$PYTHON_BIN" -m pip install -r "$SCRIPT_DIR/requirements.txt" || return $?
 
-  "$PYTHON_BIN" -m pip uninstall -y torch torchvision torchaudio >/dev/null 2>&1 || true
-  "$PYTHON_BIN" -m pip install torch torchvision torchaudio --index-url "$TORCH_INDEX_URL" || return $?
+  install_torch || return $?
 
   echo "Python dependencies installed."
   echo "Verify PyTorch with:"
-  echo "$PYTHON_BIN -c \"import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)\""
+  echo "$PYTHON_BIN -c \"import torch; print(torch.__version__, {'cuda': torch.cuda.is_available(), 'mps': getattr(torch.backends, 'mps', None) is not None and torch.backends.mps.is_available()}, torch.version.cuda)\""
   return 0
 }
 

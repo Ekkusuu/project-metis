@@ -21,6 +21,40 @@ _reranker_model = None
 _file_metadata_path: Optional[Path] = None
 
 
+def resolve_torch_device(preference: str = "auto") -> str:
+    """Resolve the best available torch device for local embedding/reranker inference."""
+    import torch
+
+    requested = (preference or "auto").lower()
+    mps_backend = getattr(torch.backends, "mps", None)
+    mps_available = bool(mps_backend and mps_backend.is_available())
+
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        if mps_available:
+            return "mps"
+        return "cpu"
+
+    if requested == "cuda":
+        if torch.cuda.is_available():
+            return "cuda"
+        print("Requested device 'cuda' not available; falling back to 'cpu'")
+        return "cpu"
+
+    if requested == "mps":
+        if mps_available:
+            return "mps"
+        print("Requested device 'mps' not available; falling back to 'cpu'")
+        return "cpu"
+
+    if requested == "cpu":
+        return "cpu"
+
+    print(f"Unknown torch device preference '{preference}'; falling back to auto detection")
+    return resolve_torch_device("auto")
+
+
 def reset_rag_state() -> None:
     """Clear cached RAG clients/models so config changes apply immediately."""
     global _chroma_client, _collection, _reranker_model, _file_metadata_path
@@ -143,14 +177,16 @@ def get_collection() -> chromadb.Collection:
     
     # Load local sentence-transformers model
     from sentence_transformers import SentenceTransformer
+
+    embedding_device = rag_cfg.get("embedding_device", "auto")
     
     class LocalEmbeddingFunction:
         """Custom embedding function using local SentenceTransformer model."""
-        def __init__(self, model_path: Path):
-            import torch
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        def __init__(self, model_path: Path, device_preference: str):
+            device = resolve_torch_device(device_preference)
             self.model = SentenceTransformer(str(model_path), device=device)
             self._model_path = model_path
+            self._device = device
             print(f"✓ Embedding model loaded on: {device}")
         
         def __call__(self, input: List[str]) -> List[List[float]]:
@@ -187,7 +223,7 @@ def get_collection() -> chromadb.Collection:
             """Return the name of the embedding function."""
             return f"local-sentence-transformer-{self._model_path.name}"
     
-    embedding_function = LocalEmbeddingFunction(model_path)
+    embedding_function = LocalEmbeddingFunction(model_path, embedding_device)
 
     _collection = client.get_or_create_collection(
         name=collection_name,
@@ -222,25 +258,10 @@ def get_reranker_model():
     
     try:
         from sentence_transformers import CrossEncoder
-        import torch
-
-        # Allow configuring reranker device in config.yaml under rag.reranker_device
-        # Default to 'cpu' to avoid competing with the LLM model for GPU resources.
-        device_pref = rag_cfg.get("reranker_device", "cpu")
-        if isinstance(device_pref, str):
-            device_pref = device_pref.lower()
-
-        if device_pref == "auto":
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        elif device_pref == "cuda":
-            if torch.cuda.is_available():
-                device = 'cuda'
-            else:
-                print("Requested reranker device 'cuda' not available; falling back to 'cpu'")
-                device = 'cpu'
-        else:
-            # Default or explicit 'cpu'
-            device = 'cpu'
+        # Allow configuring reranker device in config.yaml under rag.reranker_device.
+        # Use 'auto' by default so Apple Silicon can use MPS locally.
+        device_pref = rag_cfg.get("reranker_device", "auto")
+        device = resolve_torch_device(device_pref)
 
         print(f"Loading reranker model from: {model_path} on device: {device}")
         _reranker_model = CrossEncoder(str(model_path), device=device)

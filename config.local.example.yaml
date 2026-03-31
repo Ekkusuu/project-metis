@@ -5,6 +5,8 @@ rag:
   folders_to_index:
     - "C:\\path\\to\\your\\notes"
     - "memory/long_term"
+  embedding_device: "auto"
+  reranker_device: "auto"
 
 chat:
   system_prompt: >

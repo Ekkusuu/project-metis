@@ -62,6 +62,11 @@ The release example config uses `docs` and `memory/long_term` for RAG by default
 - Docker Desktop or Docker Engine if you want the Docker workflow
 - NVIDIA GPU + drivers if you want GPU acceleration
 
+Apple Silicon notes:
+- native local setup on macOS supports Apple GPU acceleration for the RAG models via PyTorch MPS,
+- the local LLM service uses `node-llama-cpp`, which selects Metal automatically on Apple Silicon,
+- Docker on macOS still runs CPU-only because Metal is not available inside containers.
+
 ## Manual Setup
 
 Use this when you want the normal dev workflow with separate services.
@@ -80,7 +85,9 @@ macOS / Linux:
 sh ./setup.sh
 ```
 
-If you need CPU-only PyTorch:
+On Apple Silicon Macs, the setup script installs the normal macOS PyTorch wheels automatically.
+
+If you need CPU-only PyTorch on Linux:
 
 ```sh
 TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu sh ./setup.sh
