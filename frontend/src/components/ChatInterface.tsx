@@ -20,6 +20,25 @@ interface Message {
   }>;
 }
 
+interface ChatSummary {
+  id: string;
+  title: string;
+  lastUpdated: string;
+  messageCount: number;
+  preview: string;
+}
+
+interface ChatLoadResponse {
+  activeChatId: string;
+  chats: ChatSummary[];
+  chat: {
+    chatId: string;
+    title: string;
+    messages: Array<Omit<Message, 'timestamp'> & { timestamp: string }>;
+    lastUpdated: string;
+  };
+}
+
 function PlanningTrace({ notes, messageId, isActive }: { notes: NonNullable<Message['planningNotes']>; messageId: string; isActive: boolean }) {
   const [open, setOpen] = useState(isActive);
 
@@ -152,6 +171,9 @@ function MessageText({ rawText, messageId }: { rawText: string; messageId: strin
 }
 function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [chatSummaries, setChatSummaries] = useState<ChatSummary[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatTitle, setActiveChatTitle] = useState('New chat');
   const [tasks, setTasks] = useState<PlanTask[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -161,6 +183,14 @@ function ChatInterface() {
   const [editingText, setEditingText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const applyChatResponse = (data: ChatLoadResponse) => {
+    setChatSummaries(data.chats);
+    setActiveChatId(data.activeChatId);
+    setActiveChatTitle(data.chat.title);
+    setMessages(data.chat.messages.map((msg) => ({ ...msg, timestamp: new Date(msg.timestamp) })));
+  };
+
   // Load chat history on mount
   useEffect(() => {
     loadChatHistory();
@@ -171,10 +201,10 @@ function ChatInterface() {
     // Avoid saving while the AI is actively streaming tokens (isTyping)
     // Streaming updates mutate `messages` many times per response which causes
     // repeated POSTs to `/history/save`. Only save when not typing.
-    if (!isLoading && !isTyping && messages.length > 0) {
+    if (!isLoading && !isTyping && activeChatId && messages.length > 0) {
       scheduleSave();
     }
-  }, [messages, isTyping, isLoading]);
+  }, [messages, isTyping, isLoading, activeChatId]);
 
   // Also save once when a message has finished streaming. The streaming
   // handler dispatches a `messageComplete` CustomEvent when finished.
@@ -214,15 +244,13 @@ function ChatInterface() {
     try {
       const response = await fetch(`${API_URL}/history/load`);
       if (response.ok) {
-        const data = await response.json();
-        setMessages(data.messages.map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp),
-        })));
+        const data: ChatLoadResponse = await response.json();
+        applyChatResponse(data);
       }
     } catch (error) {
       console.error('Failed to load chat history:', error);
       // Fallback to default message
+      setActiveChatTitle('New chat');
       setMessages([
         {
           id: '1',
@@ -231,6 +259,51 @@ function ChatInterface() {
           timestamp: new Date(),
         },
       ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const selectChat = async (chatId: string) => {
+    if (chatId === activeChatId) return;
+
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+      await saveChatHistory();
+    }
+
+    setTasks([]);
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/history/load?chat_id=${encodeURIComponent(chatId)}`);
+      if (!response.ok) throw new Error((await response.text()) || 'Failed to load selected chat');
+      const data: ChatLoadResponse = await response.json();
+      applyChatResponse(data);
+    } catch (error) {
+      console.error('Failed to switch chats:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateChat = async () => {
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+      await saveChatHistory();
+    }
+
+    setTasks([]);
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/history/chats`, { method: 'POST' });
+      if (!response.ok) throw new Error((await response.text()) || 'Failed to create chat');
+      const data: ChatLoadResponse = await response.json();
+      applyChatResponse(data);
+      setInput('');
+    } catch (error) {
+      console.error('Failed to create chat:', error);
     } finally {
       setIsLoading(false);
     }
@@ -373,11 +446,15 @@ function ChatInterface() {
   };
 
   const saveChatHistory = async () => {
+    if (!activeChatId) return;
+
     try {
-      await fetch(`${API_URL}/history/save`, {
+      const response = await fetch(`${API_URL}/history/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          chatId: activeChatId,
+          title: activeChatTitle,
           messages: messages.map((msg) => ({
             ...msg,
             timestamp: msg.timestamp.toISOString(),
@@ -385,6 +462,11 @@ function ChatInterface() {
           lastUpdated: new Date().toISOString(),
         }),
       });
+      if (response.ok) {
+        const data: ChatLoadResponse = await response.json();
+        setChatSummaries(data.chats);
+        setActiveChatTitle(data.chat.title);
+      }
     } catch (error) {
       console.error('Failed to save chat history:', error);
     }
@@ -396,16 +478,14 @@ function ChatInterface() {
     }
 
     try {
-      const response = await fetch(`${API_URL}/history/reset`, {
+      const response = await fetch(`${API_URL}/history/reset?chat_id=${encodeURIComponent(activeChatId ?? '')}`, {
         method: 'POST',
       });
       
       if (response.ok) {
-        const data = await response.json();
-        setMessages(data.messages.map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp),
-        })));
+        const data: ChatLoadResponse = await response.json();
+        applyChatResponse(data);
+        setTasks([]);
       }
     } catch (error) {
       console.error('Failed to reset chat:', error);
@@ -542,11 +622,39 @@ function ChatInterface() {
 
   return (
     <div className="chat-shell">
+      <aside className="chat-list-sidebar">
+        <div className="chat-list-header">
+          <div>
+            <div className="chat-list-title">Chats</div>
+            <div className="chat-list-subtitle">Switch between saved conversations.</div>
+          </div>
+          <button onClick={handleCreateChat} className="new-chat-button" disabled={isTyping || isLoading}>
+            New chat
+          </button>
+        </div>
+
+        <div className="chat-list-items">
+          {chatSummaries.map((chat) => (
+            <button
+              key={chat.id}
+              className={`chat-list-item ${chat.id === activeChatId ? 'active' : ''}`}
+              onClick={() => selectChat(chat.id)}
+              disabled={isLoading || isTyping || chat.id === activeChatId}
+              title={chat.title}
+            >
+              <div className="chat-list-item-title">{chat.title}</div>
+              <div className="chat-list-item-preview">{chat.preview}</div>
+              <div className="chat-list-item-meta">{chat.messageCount} messages</div>
+            </button>
+          ))}
+        </div>
+      </aside>
+
       <div className="chat-container">
       <div className="chat-header">
         <div className="header-content">
           <div className="header-text">
-            <h1>Metis AI</h1>
+            <h1>{activeChatTitle}</h1>
             <p className="subtitle">Your AI Assistant</p>
           </div>
           <button onClick={handleResetChat} className="reset-button" title="Reset chat">
