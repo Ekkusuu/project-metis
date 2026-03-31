@@ -79,7 +79,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const builtSettings = buildPayload();
   const hasPresetSettingsChanges = isEditingPreset && !!selectedPreset && JSON.stringify(builtSettings) !== JSON.stringify(selectedPreset.settings);
   const hasPresetMetadataChanges = isEditingPreset && !!selectedPreset && (draftTitle !== selectedPreset.title || draftDescription !== selectedPreset.description);
-  const canSavePresetChanges = !isDefaultSelected && (isCreatingPreset || hasPresetSettingsChanges || hasPresetMetadataChanges);
+  const canSavePresetChanges = isCreatingPreset || (!isDefaultSelected && (hasPresetSettingsChanges || hasPresetMetadataChanges));
 
   const showTemporaryMessage = (type: 'success' | 'error' | 'info', text: string) => {
     if (messageTimeoutRef.current) {
@@ -168,7 +168,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   const savePresetChanges = async () => {
-    if (isDefaultSelected) return;
+    if (isDefaultSelected && !isCreatingPreset) return;
     if (!draftTitle.trim()) {
       showTemporaryMessage('error', 'Preset title is required.');
       return;
