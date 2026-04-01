@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import RagPanel from './RagPanel';
-import ChatContext from './ChatContext';
+import ChatsPanel from './ChatsPanel';
 import SettingsPanel from './SettingsPanel';
 import { BookIcon, ChatBubbleIcon, SlidersIcon } from './Icons';
 import './Sidebar.css';
 
-type Tab = 'rag' | 'context';
+type Tab = 'rag' | 'chats';
 
 function Sidebar() {
   const [activeTab, setActiveTab] = useState<Tab>('rag');
@@ -24,11 +24,11 @@ function Sidebar() {
               <span>RAG</span>
             </button>
             <button
-              className={`tab-button ${activeTab === 'context' ? 'active' : ''}`}
-              onClick={() => setActiveTab('context')}
+              className={`tab-button ${activeTab === 'chats' ? 'active' : ''}`}
+              onClick={() => setActiveTab('chats')}
             >
               <ChatBubbleIcon className="tab-icon" />
-              <span>Context</span>
+              <span>Chats</span>
             </button>
           </div>
 
@@ -42,7 +42,7 @@ function Sidebar() {
         </div>
 
         <div className="sidebar-content">
-          {activeTab === 'rag' ? <RagPanel /> : <ChatContext />}
+          {activeTab === 'rag' ? <RagPanel /> : <ChatsPanel />}
         </div>
       </div>
 

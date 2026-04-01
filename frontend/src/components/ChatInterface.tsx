@@ -5,7 +5,7 @@ import './ChatInterface.css';
 import 'highlight.js/styles/github-dark.css';
 import { API_URL } from '../lib/api';
 import PlanPanel, { type PlanTask } from './PlanPanel';
-import { EditIcon, RefreshIcon } from './Icons';
+import { EditIcon, PlusIcon } from './Icons';
 
 interface Message {
   id: string;
@@ -171,7 +171,6 @@ function MessageText({ rawText, messageId }: { rawText: string; messageId: strin
 }
 function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatSummaries, setChatSummaries] = useState<ChatSummary[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChatTitle, setActiveChatTitle] = useState('New chat');
   const [tasks, setTasks] = useState<PlanTask[]>([]);
@@ -185,10 +184,10 @@ function ChatInterface() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const applyChatResponse = (data: ChatLoadResponse) => {
-    setChatSummaries(data.chats);
     setActiveChatId(data.activeChatId);
     setActiveChatTitle(data.chat.title);
     setMessages(data.chat.messages.map((msg) => ({ ...msg, timestamp: new Date(msg.timestamp) })));
+    window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: data.activeChatId, chats: data.chats } }));
   };
 
   // Load chat history on mount
@@ -217,6 +216,25 @@ function ChatInterface() {
     window.addEventListener('messageComplete', handleMessageComplete);
     return () => window.removeEventListener('messageComplete', handleMessageComplete);
   }, []);
+
+  useEffect(() => {
+    const handleCreateRequested = () => {
+      if (!isTyping && !isLoading) void handleCreateChat();
+    };
+
+    const handleSelectRequested = (event: Event) => {
+      const chatId = (event as CustomEvent<{ chatId: string }>).detail?.chatId;
+      if (!chatId || isTyping || isLoading) return;
+      void selectChat(chatId);
+    };
+
+    window.addEventListener('requestNewChat', handleCreateRequested);
+    window.addEventListener('requestSelectChat', handleSelectRequested);
+    return () => {
+      window.removeEventListener('requestNewChat', handleCreateRequested);
+      window.removeEventListener('requestSelectChat', handleSelectRequested);
+    };
+  }, [isTyping, isLoading, activeChatId, messages, activeChatTitle]);
 
   // Debounced save helper: prevents rapid consecutive POSTs if state updates
   // happen in bursts. `scheduleSave` will call `saveChatHistory` after a short
@@ -249,16 +267,8 @@ function ChatInterface() {
       }
     } catch (error) {
       console.error('Failed to load chat history:', error);
-      // Fallback to default message
       setActiveChatTitle('New chat');
-      setMessages([
-        {
-          id: '1',
-          text: 'Hello! How can I assist you today?',
-          sender: 'ai',
-          timestamp: new Date(),
-        },
-      ]);
+      setMessages([]);
     } finally {
       setIsLoading(false);
     }
@@ -464,31 +474,11 @@ function ChatInterface() {
       });
       if (response.ok) {
         const data: ChatLoadResponse = await response.json();
-        setChatSummaries(data.chats);
         setActiveChatTitle(data.chat.title);
+        window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: data.activeChatId, chats: data.chats } }));
       }
     } catch (error) {
       console.error('Failed to save chat history:', error);
-    }
-  };
-
-  const handleResetChat = async () => {
-    if (!confirm('Are you sure you want to reset the chat? This will delete all messages.')) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`${API_URL}/history/reset?chat_id=${encodeURIComponent(activeChatId ?? '')}`, {
-        method: 'POST',
-      });
-      
-      if (response.ok) {
-        const data: ChatLoadResponse = await response.json();
-        applyChatResponse(data);
-        setTasks([]);
-      }
-    } catch (error) {
-      console.error('Failed to reset chat:', error);
     }
   };
 
@@ -622,34 +612,6 @@ function ChatInterface() {
 
   return (
     <div className="chat-shell">
-      <aside className="chat-list-sidebar">
-        <div className="chat-list-header">
-          <div>
-            <div className="chat-list-title">Chats</div>
-            <div className="chat-list-subtitle">Switch between saved conversations.</div>
-          </div>
-          <button onClick={handleCreateChat} className="new-chat-button" disabled={isTyping || isLoading}>
-            New chat
-          </button>
-        </div>
-
-        <div className="chat-list-items">
-          {chatSummaries.map((chat) => (
-            <button
-              key={chat.id}
-              className={`chat-list-item ${chat.id === activeChatId ? 'active' : ''}`}
-              onClick={() => selectChat(chat.id)}
-              disabled={isLoading || isTyping || chat.id === activeChatId}
-              title={chat.title}
-            >
-              <div className="chat-list-item-title">{chat.title}</div>
-              <div className="chat-list-item-preview">{chat.preview}</div>
-              <div className="chat-list-item-meta">{chat.messageCount} messages</div>
-            </button>
-          ))}
-        </div>
-      </aside>
-
       <div className="chat-container">
       <div className="chat-header">
         <div className="header-content">
@@ -657,9 +619,9 @@ function ChatInterface() {
             <h1>{activeChatTitle}</h1>
             <p className="subtitle">Your AI Assistant</p>
           </div>
-          <button onClick={handleResetChat} className="reset-button" title="Reset chat">
-            <RefreshIcon className="button-icon" />
-            <span>Reset</span>
+          <button onClick={handleCreateChat} className="reset-button" title="New chat" disabled={isTyping || isLoading}>
+            <PlusIcon className="button-icon" />
+            <span>New chat</span>
           </button>
         </div>
       </div>

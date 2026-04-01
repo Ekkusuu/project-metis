@@ -532,7 +532,7 @@
 }
 
 .chunk-modal-body blockquote {
-  border-left: 3px solid #58a6ff;
+  border-left: 3px solid rgba(255, 255, 255, 0.78);
   padding-left: 1rem;
   margin: 1rem 0;
   color: #8b949e;
@@ -546,7 +546,7 @@
 }
 
 .chunk-modal-body a {
-  color: #58a6ff;
+  color: #f1f3f5;
   text-decoration: none;
 }
 

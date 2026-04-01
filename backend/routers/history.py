@@ -60,19 +60,26 @@ class ChatListResponse(BaseModel):
     chats: List[ChatSummary]
 
 
+class ChatRenamePayload(BaseModel):
+    title: str
+
+
 def _now_iso() -> str:
     return datetime.now().isoformat()
 
 
 def _initial_messages() -> List[Dict[str, Any]]:
+    return []
+
+
+def _strip_legacy_greeting(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
-        {
-            "id": "1",
-            "text": "Hello! How can I assist you today?",
-            "sender": "ai",
-            "timestamp": _now_iso(),
-            "tokensPerSecond": None,
-        }
+        message
+        for message in messages
+        if not (
+            message.get("sender") == "ai"
+            and str(message.get("text") or "").strip() == "Hello! How can I assist you today?"
+        )
     ]
 
 
@@ -80,6 +87,7 @@ def _new_chat(title: str = "New chat") -> Dict[str, Any]:
     return {
         "id": str(uuid4()),
         "title": title,
+        "customTitle": False,
         "messages": _initial_messages(),
         "lastUpdated": _now_iso(),
         "createdAt": _now_iso(),
@@ -130,9 +138,7 @@ def _normalize_chat(raw: Any) -> Optional[Dict[str, Any]]:
     normalized_messages = []
     if isinstance(raw_messages, list):
         normalized_messages = [msg for item in raw_messages if (msg := _normalize_message(item))]
-
-    if not normalized_messages:
-        normalized_messages = _initial_messages()
+    normalized_messages = _strip_legacy_greeting(normalized_messages)
 
     fallback_title = str(raw.get("title") or "").strip() or "New chat"
     title = _derive_title(normalized_messages, fallback_title)
@@ -140,6 +146,7 @@ def _normalize_chat(raw: Any) -> Optional[Dict[str, Any]]:
     return {
         "id": str(raw.get("id") or uuid4()),
         "title": title,
+        "customTitle": bool(raw.get("customTitle", False)),
         "messages": normalized_messages,
         "lastUpdated": str(raw.get("lastUpdated") or _now_iso()),
         "createdAt": str(raw.get("createdAt") or _now_iso()),
@@ -262,6 +269,29 @@ async def create_chat() -> ChatLoadResponse:
         raise HTTPException(status_code=500, detail=f"Failed to create chat: {exc}")
 
 
+@router.patch("/chats/{chat_id}", response_model=ChatLoadResponse)
+async def rename_chat(chat_id: str, payload: ChatRenamePayload) -> ChatLoadResponse:
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Chat title is required")
+
+    try:
+        store = _load_store()
+        chat = _get_chat_or_raise(store, chat_id)
+        chat["title"] = title
+        chat["customTitle"] = True
+        chat["lastUpdated"] = _now_iso()
+        store["activeChatId"] = chat["id"]
+        store["chats"].sort(key=lambda item: item["lastUpdated"], reverse=True)
+        _save_store(store)
+        updated_chat = _get_chat_or_raise(store, chat["id"])
+        return _build_load_response(store, updated_chat)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to rename chat: {exc}")
+
+
 @router.post("/save", response_model=ChatLoadResponse)
 async def save_chat_history(history: ChatHistory) -> ChatLoadResponse:
     try:
@@ -269,12 +299,14 @@ async def save_chat_history(history: ChatHistory) -> ChatLoadResponse:
         target_id = history.chatId or store["activeChatId"]
         chat = _get_chat_or_raise(store, target_id)
         messages = [message.model_dump() for message in history.messages]
-        if not messages:
-            messages = _initial_messages()
+        messages = _strip_legacy_greeting(messages)
 
         chat["messages"] = messages
         chat["lastUpdated"] = _now_iso()
-        chat["title"] = _derive_title(messages, str(history.title or chat["title"] or "New chat"))
+        if chat.get("customTitle"):
+            chat["title"] = str(history.title or chat["title"] or "New chat").strip() or "New chat"
+        else:
+            chat["title"] = _derive_title(messages, str(history.title or chat["title"] or "New chat"))
         store["activeChatId"] = chat["id"]
         store["chats"].sort(key=lambda item: item["lastUpdated"], reverse=True)
         _save_store(store)
@@ -303,6 +335,7 @@ async def reset_chat_history(chat_id: str | None = Query(default=None)) -> ChatL
         chat["messages"] = _initial_messages()
         chat["lastUpdated"] = _now_iso()
         chat["title"] = "New chat"
+        chat["customTitle"] = False
         store["activeChatId"] = chat["id"]
         store["chats"].sort(key=lambda item: item["lastUpdated"], reverse=True)
         _save_store(store)

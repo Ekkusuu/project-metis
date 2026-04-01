@@ -137,6 +137,15 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function PlusIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M10 4v12" />
+      <path d="M4 10h12" />
+    </BaseIcon>
+  );
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <BaseIcon {...props}>

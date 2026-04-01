@@ -44,14 +44,15 @@ button {
   font-family: inherit;
   background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: border-color 0.25s, box-shadow 0.25s, outline-color 0.25s;
 }
 button:hover {
-  border-color: #646cff;
+  border-color: rgba(255, 255, 255, 0.32);
 }
 button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
 }
 
 * {
