@@ -78,6 +78,30 @@ let llama;
 let model;
 let context;
 let currentSession;
+let generationQueue = Promise.resolve();
+const contextSequences = Math.max(2, Number(config.llm_service?.sequences || 4));
+
+function withGenerationLock(work) {
+  const run = generationQueue.then(() => work());
+  generationQueue = run.catch(() => {});
+  return run;
+}
+
+async function acquireSequenceWithRetry(maxAttempts = 10, delayMs = 25) {
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return context.getSequence();
+    } catch (error) {
+      lastError = error;
+      if (error?.message !== "No sequences left") {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError || new Error("No sequences left");
+}
 
 // Initialize the model
 async function initModel() {
@@ -117,8 +141,9 @@ async function initModel() {
     const contextSize = config.model.n_ctx || 8192;
     context = await model.createContext({
       contextSize: contextSize,
+      sequences: contextSequences,
     });
-    console.log(`✓ Context created (size: ${contextSize})`);
+    console.log(`✓ Context created (size: ${contextSize}, sequences: ${contextSequences})`);
 
     // Warmup: run a short, lightweight generation to JIT/cache runtime paths and reduce first-request latency
     try {
@@ -157,16 +182,19 @@ app.get("/health", (req, res) => {
 
 // Non-streaming chat completion
 app.post("/chat/completion", async (req, res) => {
-  let sequence = null;
   try {
-    const { messages, temperature, top_p, max_tokens } = req.body;
+    await withGenerationLock(async () => {
+      let sequence = null;
+      try {
+        const { messages, temperature, top_p, max_tokens } = req.body;
 
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "messages array is required" });
-    }
+        if (!messages || !Array.isArray(messages)) {
+          res.status(400).json({ error: "messages array is required" });
+          return;
+        }
 
-    // Create a new sequence for this request
-    sequence = context.getSequence();
+        // Create a new sequence for this request
+        sequence = await acquireSequenceWithRetry();
     
     // Check if we should use system prompts (from config or detect from messages)
     const useSystemPrompt = config.model?.use_system_prompt !== false;
@@ -215,62 +243,68 @@ app.post("/chat/completion", async (req, res) => {
     }
 
     // Validate we have messages
-    if (chatHistory.length === 0) {
-      return res.status(400).json({ error: "No valid messages provided" });
-    }
+        if (chatHistory.length === 0) {
+          res.status(400).json({ error: "No valid messages provided" });
+          return;
+        }
 
     // Get the last message - should be a user message
     const lastMsg = chatHistory[chatHistory.length - 1];
-    if (lastMsg.type !== "user") {
-      return res.status(400).json({ error: "Last message must be from user" });
-    }
+        if (lastMsg.type !== "user") {
+          res.status(400).json({ error: "Last message must be from user" });
+          return;
+        }
 
     // Generate response
-    const response = await chat.generateResponse(chatHistory, {
-      temperature: temperature ?? config.chat.temperature ?? 0.7,
-      topP: top_p ?? config.chat.top_p ?? 0.95,
-      maxTokens: max_tokens ?? config.chat.max_tokens ?? 512,
-    });
+        const response = await chat.generateResponse(chatHistory, {
+          temperature: temperature ?? config.chat.temperature ?? 0.7,
+          topP: top_p ?? config.chat.top_p ?? 0.95,
+          maxTokens: max_tokens ?? config.chat.max_tokens ?? 512,
+        });
 
-    res.json({
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: response,
-          },
-        },
-      ],
+        res.json({
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: response,
+              },
+            },
+          ],
+        });
+      } finally {
+        if (sequence) {
+          sequence.dispose();
+        }
+      }
     });
   } catch (error) {
     console.error("Error in chat completion:", error);
     res.status(500).json({ error: error.message });
-  } finally {
-    // Dispose of the sequence to free it up
-    if (sequence) {
-      sequence.dispose();
-    }
   }
 });
 
 // Streaming chat completion
 app.post("/chat/stream", async (req, res) => {
-  let sequence = null;
   try {
-    const { messages, temperature, top_p, max_tokens } = req.body;
+    await withGenerationLock(async () => {
+      let sequence = null;
+      try {
+        const { messages, temperature, top_p, max_tokens } = req.body;
 
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "messages array is required" });
-    }
+        if (!messages || !Array.isArray(messages)) {
+          res.status(400).json({ error: "messages array is required" });
+          return;
+        }
 
-    // Set headers for streaming
-    res.setHeader("Content-Type", "application/x-ndjson");
-    res.setHeader("Transfer-Encoding", "chunked");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
+        // Set headers for streaming
+        res.setHeader("Content-Type", "application/x-ndjson");
+        res.setHeader("Transfer-Encoding", "chunked");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
 
-    // Create a new sequence for this request
-    sequence = context.getSequence();
+        // Create a new sequence for this request
+        sequence = await acquireSequenceWithRetry();
     
     // Check if we should use system prompts (from config or detect from messages)
     const useSystemPrompt = config.model?.use_system_prompt !== false;
@@ -319,64 +353,69 @@ app.post("/chat/stream", async (req, res) => {
     }
 
     // Validate we have messages
-    if (chatHistory.length === 0) {
-      res.write(JSON.stringify({ error: "No valid messages provided" }) + "\n");
-      if (sequence) sequence.dispose();
-      return res.end();
-    }
+        if (chatHistory.length === 0) {
+          res.write(JSON.stringify({ error: "No valid messages provided" }) + "\n");
+          res.end();
+          return;
+        }
 
     // Get the last message - should be a user message
     const lastMsg = chatHistory[chatHistory.length - 1];
-    if (lastMsg.type !== "user") {
-      res.write(JSON.stringify({ error: "Last message must be from user" }) + "\n");
-      if (sequence) sequence.dispose();
-      return res.end();
-    }
+        if (lastMsg.type !== "user") {
+          res.write(JSON.stringify({ error: "Last message must be from user" }) + "\n");
+          res.end();
+          return;
+        }
 
     // Track tokens and timing
-    let tokenCount = 0;
-    const startTime = Date.now();
+        let tokenCount = 0;
+        const startTime = Date.now();
 
     // Stream the response using chat.generateResponse with history
-    const response = await chat.generateResponse(
-      chatHistory,
-      {
-        temperature: temperature ?? config.chat.temperature ?? 0.7,
-        topP: top_p ?? config.chat.top_p ?? 0.95,
-        maxTokens: max_tokens ?? config.chat.max_tokens ?? 512,
-        onTextChunk: (chunk) => {
-          tokenCount++;
-          res.write(
-            JSON.stringify({
-              delta: chunk,
-              done: false,
-            }) + "\n"
-          );
-        },
-      }
-    );
+        await chat.generateResponse(
+          chatHistory,
+          {
+            temperature: temperature ?? config.chat.temperature ?? 0.7,
+            topP: top_p ?? config.chat.top_p ?? 0.95,
+            maxTokens: max_tokens ?? config.chat.max_tokens ?? 512,
+            onTextChunk: (chunk) => {
+              tokenCount++;
+              res.write(
+                JSON.stringify({
+                  delta: chunk,
+                  done: false,
+                }) + "\n"
+              );
+            },
+          }
+        );
 
     // Send final chunk with stats
-    const elapsedSeconds = (Date.now() - startTime) / 1000;
-    const tokensPerSecond = tokenCount / elapsedSeconds;
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        const tokensPerSecond = tokenCount / elapsedSeconds;
 
-    res.write(
-      JSON.stringify({
-        delta: "",
-        done: true,
-        tokens_per_second: parseFloat(tokensPerSecond.toFixed(2)),
-      }) + "\n"
-    );
+        res.write(
+          JSON.stringify({
+            delta: "",
+            done: true,
+            tokens_per_second: parseFloat(tokensPerSecond.toFixed(2)),
+          }) + "\n"
+        );
 
-    res.end();
+        res.end();
+      } finally {
+        if (sequence) {
+          sequence.dispose();
+        }
+      }
+    });
   } catch (error) {
     console.error("Error in streaming chat:", error);
-    res.write(JSON.stringify({ error: error.message }) + "\n");
-    res.end();
-  } finally {
-    // Dispose of the sequence to free it up
-    if (sequence) {
-      sequence.dispose();
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.write(JSON.stringify({ error: error.message }) + "\n");
+      res.end();
     }
   }
 });

@@ -5,7 +5,7 @@ Handles temporary memory storage and long-term memory summarization.
 from pathlib import Path
 from typing import List, Dict
 import datetime
-from backend.llama_engine import chat_completion, get_config
+from backend.llama_engine import chat_completion, get_config, strip_thinking_tags
 from backend.token_utils import count_tokens
 
 # Memory paths
@@ -218,6 +218,7 @@ def summarize_and_archive_temp_memory() -> None:
         
         print("Calling LLM service for summarization...")
         summary = chat_completion(messages, temperature=0.3, max_tokens=500)
+        summary = strip_thinking_tags(summary)
         print(f"Summary generated: {len(summary)} characters")
         
         # Format summary with user personal information prefix

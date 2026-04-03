@@ -2,7 +2,7 @@
 # Keep machine-specific overrides in config.local.yaml (git-ignored)
 
 model:
-  path: "model/psychologistv2-8.0B-Q4_0.gguf"
+  path: "model/Qwen3.5-9B.Q4_K_M.gguf"
   tokenizer_path: "rag-models/embeddinggemma-300m"
   n_ctx: 8192  # Context window size (in tokens)
   n_gpu_layers: -1  # -1 = auto-offload all layers to GPU if available
