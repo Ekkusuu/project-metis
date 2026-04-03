@@ -4,16 +4,15 @@ import json
 import random
 import re
 from typing import Any, Dict, List
+import yaml
 
-from backend.llama_engine import chat_completion
+from backend.llama_engine import chat_completion, strip_thinking_tags
 
 
 PHASE_ORDER = ["analyze", "context", "compose"]
+MIN_TASKS = 3
+MAX_TASKS = 6
 BAD_TASK_PREFIXES = {
-    "suggest",
-    "encourage",
-    "recommend",
-    "advise",
     "tell the user",
     "help the user",
     "explain to the user",
@@ -46,6 +45,14 @@ def _extract_json_object(raw: str) -> str | None:
     if match:
         return match.group(1)
     return None
+
+
+def _extract_yaml_candidate(raw: str) -> str:
+    raw = raw.strip()
+    fenced_match = re.search(r"```(?:yaml|yml)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    if fenced_match:
+        return fenced_match.group(1).strip()
+    return raw
 
 
 def _normalize_phase(value: str | None) -> str | None:
@@ -117,57 +124,68 @@ def _parse_line_plan(raw: str) -> List[Dict[str, Any]]:
             continue
         if cleaned.startswith("```"):
             continue
+        # Only treat explicit list items as fallback tasks, not arbitrary prose.
+        if not re.match(r"^\s*(?:[-*]|\d+[.)]|task\s*\d+|step\s*\d+)", line, re.IGNORECASE):
+            continue
         cleaned = re.sub(r"^[-*\d.)\s]+", "", cleaned).strip()
         cleaned = re.sub(r"^(task|step)\s*\d+\s*[:.-]\s*", "", cleaned, flags=re.IGNORECASE).strip()
         if cleaned:
             unlabeled_lines.append(cleaned)
 
-    if 3 <= len(unlabeled_lines) <= 5:
-        phases = ["analyze", "context", "compose", "compose", "compose"]
-        for idx, content in enumerate(unlabeled_lines):
+    if len(unlabeled_lines) >= MIN_TASKS:
+        phases = ["analyze", "context", "compose", "compose", "compose", "compose"]
+        for idx, content in enumerate(unlabeled_lines[:MAX_TASKS]):
             tasks.append({"content": content, "phase": phases[idx]})
     return tasks
 
 
 def _looks_like_fallback(tasks: List[Dict[str, Any]]) -> bool:
+    if not tasks:
+        return False
     normalized = [str(task.get("content", "")).strip().lower() for task in tasks]
     return all(any(signature in item for signature in FALLBACK_SIGNATURES) for item in normalized)
 
 
 def _coerce_tasks(parsed: List[Any], fallback: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    if not 3 <= len(parsed) <= 5:
+    if len(parsed) < MIN_TASKS:
         return fallback
+    parsed = parsed[:MAX_TASKS]
 
     tasks: List[Dict[str, Any]] = []
     for idx, item in enumerate(parsed, start=1):
         if not isinstance(item, dict):
-            return fallback
+            continue
         content = item.get("content")
         phase = _normalize_phase(item.get("phase"))
         if not isinstance(content, str) or not content.strip() or not phase or not _is_useful_task(content):
-            return fallback
+            continue
         tasks.append({"id": f"task-{idx}", "content": content.strip()[:120], "phase": phase, "status": "pending"})
+
+    if len(tasks) < MIN_TASKS:
+        return fallback
 
     tasks.sort(key=lambda task: PHASE_ORDER.index(str(task.get("phase", "compose"))))
     return tasks
 
 
 def _coerce_plain_tasks(lines: List[str], fallback: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    if not 3 <= len(lines) <= 5:
+    if len(lines) < MIN_TASKS:
         return fallback
 
-    phases = ["analyze", "context", "compose", "compose", "compose"]
+    phases = ["analyze", "context", "compose", "compose", "compose", "compose"]
     tasks: List[Dict[str, Any]] = []
-    for idx, content in enumerate(lines, start=1):
+    for idx, content in enumerate(lines[:MAX_TASKS], start=1):
         normalized_content = content.strip()
         if not _is_useful_task(normalized_content):
-            return fallback
+            continue
         tasks.append({
             "id": f"task-{idx}",
             "content": normalized_content[:120],
             "phase": phases[idx - 1],
             "status": "pending",
         })
+    if len(tasks) < MIN_TASKS:
+        return fallback
     return tasks
 
 
@@ -200,6 +218,17 @@ def _dynamic_fallback_plan(last_user_message: str, rag_enabled: bool) -> List[Di
 
 
 def _parse_plan_response(raw: str, fallback: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    yaml_candidate = _extract_yaml_candidate(raw)
+    if yaml_candidate:
+        try:
+            parsed_yaml = yaml.safe_load(yaml_candidate)
+        except Exception:
+            parsed_yaml = None
+        if isinstance(parsed_yaml, dict) and isinstance(parsed_yaml.get("tasks"), list):
+            return _coerce_tasks(parsed_yaml["tasks"], fallback)
+        if isinstance(parsed_yaml, list):
+            return _coerce_tasks(parsed_yaml, fallback)
+
     json_object = _extract_json_object(raw)
     if json_object:
         parsed = json.loads(json_object)
@@ -207,20 +236,8 @@ def _parse_plan_response(raw: str, fallback: List[Dict[str, Any]]) -> List[Dict[
             return _coerce_tasks(parsed["tasks"], fallback)
 
     parsed_tasks = _parse_line_plan(raw)
-    if 3 <= len(parsed_tasks) <= 5:
+    if len(parsed_tasks) >= MIN_TASKS:
         return _coerce_tasks(parsed_tasks, fallback)
-
-    plain_lines: List[str] = []
-    for line in raw.splitlines():
-        cleaned = line.strip()
-        if not cleaned or cleaned.startswith("```"):
-            continue
-        cleaned = re.sub(r"^[-*\d.)\s]+", "", cleaned).strip()
-        cleaned = re.sub(r"^(task|step)\s*\d+\s*[:.-]\s*", "", cleaned, flags=re.IGNORECASE).strip()
-        if cleaned:
-            plain_lines.append(cleaned)
-    if 3 <= len(plain_lines) <= 5:
-        return _coerce_plain_tasks(plain_lines, fallback)
 
     json_block = _extract_json_array(raw)
     if json_block:
@@ -234,11 +251,18 @@ def _parse_plan_response(raw: str, fallback: List[Dict[str, Any]]) -> List[Dict[
 def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str, rag_enabled: bool, variation_token: int) -> str:
     return (
         "Create an internal execution plan for answering a chat request. "
-        "This is a read-only chat assistant with no tools, so the tasks must describe the assistant's response workflow, not the advice itself. "
-        "Make the tasks specific to the request, but keep them as internal actions such as clarifying the goal, identifying emotional cues, checking missing context, deciding whether a follow-up question is needed, selecting relevant prior context, or shaping tone. "
+        "This is a read-only chat assistant with no tools, so the tasks must break the current request into concrete internal subtasks for producing the reply, not broad planning slogans or user advice. "
+        "Each task should focus on one real subproblem from this exact request, such as choosing between two plausible interpretations, deciding which prior fact changes the answer, identifying the single missing detail that blocks a confident answer, or choosing the structure of the reply. "
+        "Every task must refer to the user's actual request, constraint, ambiguity, missing detail, or decision point. If a task could fit almost any conversation, it is too generic and should be rewritten more specifically. "
+        "Do not write generic tasks like clarifying the request, reviewing context, checking emotional cues, determining whether a follow-up question is needed, shaping tone, or generating a response unless they explicitly mention what about this request must be clarified, reviewed, or decided. "
+        "Bad example: 'Determine whether the user is asking for personal advice or general information.' Better example: 'Decide whether the user wants a first-step plan for starting a habit or help choosing which habit to start with.' "
+        "Bad example: 'Review context.' Better example: 'Check whether the user already mentioned a deadline, resource limit, or prior failed attempt that changes the starting advice.' "
         "Do NOT write tasks that tell the user what to do. Do NOT output answer content or therapy advice. "
-        "Return ONLY valid JSON in this exact shape: {\"tasks\":[{\"content\":\"...\",\"phase\":\"analyze\"}]}. "
-        "Use 3 to 5 tasks. Allowed phases are analyze, context, compose. "
+        "Return ONLY valid YAML in this exact shape:\n"
+        "tasks:\n"
+        "  - content: ...\n"
+        "    phase: analyze\n"
+        f"Use exactly {MIN_TASKS} to {MAX_TASKS} tasks. Never output more than {MAX_TASKS}. Allowed phases are analyze, context, compose. "
         "It is okay to produce slightly different but equally good task phrasing on different runs.\n\n"
         f"RAG enabled: {'yes' if rag_enabled else 'no'}\n"
         f"Conversation:\n{conversation_excerpt}\n\n"
@@ -249,12 +273,17 @@ def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str
 
 def _build_rescue_plan_prompt(conversation_excerpt: str, last_user_message: str, rag_enabled: bool, variation_token: int) -> str:
     return (
-        "Write 4 short internal tasks for preparing the assistant's next reply. "
-        "The tasks must be specific to the current request and should sound like private workflow steps. "
-        "Avoid generic tasks like 'clarify what is needed', 'review context', or 'draft the response'. "
-        "Prefer concrete internal steps such as identifying the user's hidden concern, deciding whether to ask a follow-up question, choosing which retrieved notes matter most, or deciding on tone and structure. "
+        f"Write exactly 4 to {MAX_TASKS} short internal tasks for preparing the assistant's next reply. "
+        "The tasks must be specific to the current request and should sound like private workflow subtasks. "
+        "If a task could be reused unchanged for many different user prompts, it is too generic and should be rewritten. "
+        "Prefer concrete subtasks such as resolving an ambiguity in the user's ask, choosing which earlier fact matters most, deciding what assumption must be avoided, deciding whether the reply should answer first or ask one targeted follow-up, or choosing between two response structures specific to this request. "
+        "Bad example: 'Review context.' Better example: 'Check whether the user already shared a constraint, deadline, or previous attempt that changes the advice.' "
+        "Bad example: 'Generate a response.' Better example: 'Decide whether the reply should open with one concrete first step or first frame the decision the user has to make.' "
         "Do not mention tools. Do not write advice to the user. "
-        "Return ONLY valid JSON in the exact shape {\"tasks\":[{\"content\":\"...\",\"phase\":\"analyze\"}]}.\n\n"
+        "Return ONLY valid YAML in this exact shape:\n"
+        "tasks:\n"
+        "  - content: ...\n"
+        "    phase: analyze\n\n"
         f"RAG enabled: {'yes' if rag_enabled else 'no'}\n"
         f"Conversation:\n{conversation_excerpt}\n\n"
         f"Latest request: {last_user_message}\n"
@@ -264,9 +293,12 @@ def _build_rescue_plan_prompt(conversation_excerpt: str, last_user_message: str,
 
 def _build_repair_prompt(raw_output: str) -> str:
     return (
-        "Convert the following planner output into valid JSON. "
-        "Return ONLY valid JSON in the exact shape {\"tasks\":[{\"content\":\"...\",\"phase\":\"analyze\"}]}. "
-        "Use 3 to 5 tasks. Allowed phases are analyze, context, compose. "
+        "Convert the following planner output into valid YAML. "
+        "Return ONLY valid YAML in this exact shape:\n"
+        "tasks:\n"
+        "  - content: ...\n"
+        "    phase: analyze\n"
+        f"Use exactly {MIN_TASKS} to {MAX_TASKS} tasks and never output more than {MAX_TASKS}. Allowed phases are analyze, context, compose. "
         "Do not invent unrelated tasks; keep the original intent but normalize it.\n\n"
         f"Planner output to repair:\n{raw_output}"
     )
@@ -317,6 +349,7 @@ def execute_planning_task(
             top_p=0.9,
             max_tokens=140,
         )
+        raw = strip_thinking_tags(raw)
 
         lines = []
         for line in raw.splitlines():
@@ -369,7 +402,7 @@ def _fallback_plan(last_user_message: str, rag_enabled: bool) -> List[Dict[str, 
 
 def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_enabled: bool) -> List[Dict[str, Any]]:
     """Create a small read-only task plan for the current chat turn."""
-    fallback = _dynamic_fallback_plan(last_user_message, rag_enabled)
+    fallback: List[Dict[str, Any]] = []
     variation_token = random.randint(1000, 9999)
 
     conversation_excerpt = "\n".join(
@@ -394,6 +427,8 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
             top_p=top_p,
             max_tokens=180,
         )
+        raw = strip_thinking_tags(raw)
+        print("\n[planner] raw plan output:\n" + raw + "\n")
         return _parse_plan_response(raw, fallback), raw
 
     def _repair_plan(raw: str) -> List[Dict[str, Any]]:
@@ -401,7 +436,7 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
             [
                 {
                     "role": "system",
-                    "content": "You normalize planner outputs into strict JSON.",
+                    "content": "You normalize planner outputs into strict YAML.",
                 },
                 {"role": "user", "content": _build_repair_prompt(raw)},
             ],
@@ -409,6 +444,8 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
             top_p=0.4,
             max_tokens=220,
         )
+        repaired = strip_thinking_tags(repaired)
+        print("\n[planner] repaired plan output:\n" + repaired + "\n")
         return _parse_plan_response(repaired, fallback)
 
     try:
