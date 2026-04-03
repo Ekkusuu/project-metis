@@ -29,10 +29,10 @@ interface ChatSummary {
 }
 
 interface ChatLoadResponse {
-  activeChatId: string;
+  activeChatId: string | null;
   chats: ChatSummary[];
   chat: {
-    chatId: string;
+    chatId: string | null;
     title: string;
     messages: Array<Omit<Message, 'timestamp'> & { timestamp: string }>;
     lastUpdated: string;
@@ -77,10 +77,8 @@ function PlanningTrace({ notes, messageId, isActive }: { notes: NonNullable<Mess
   );
 }
 
-// Component: render message text and collapse any <think> sections by default
+// Component: render message text and split out any <think> sections.
 function MessageText({ rawText, messageId }: { rawText: string; messageId: string }) {
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-
   const normalize = (t: string) =>
     t
       .replace(/\r\n/g, '\n')
@@ -140,8 +138,6 @@ function MessageText({ rawText, messageId }: { rawText: string; messageId: strin
 
   const parts = parseParts(rawText);
 
-  const toggle = (i: number) => setExpanded((s) => ({ ...s, [i]: !s[i] }));
-
   return (
     <>
       {parts.map((p, i) =>
@@ -151,18 +147,10 @@ function MessageText({ rawText, messageId }: { rawText: string; messageId: strin
           </ReactMarkdown>
         ) : (
           <div key={`${messageId}-think-${i}`} className="think-block">
-            <button
-              className="think-toggle"
-              onClick={() => toggle(i)}
-              aria-expanded={!!expanded[i]}
-            >
-              {expanded[i] ? 'Hide reasoning' : 'Show reasoning'}
-            </button>
-            {expanded[i] && (
-              <div className="think-content">
-                <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{normalize(p.content)}</ReactMarkdown>
-              </div>
-            )}
+            <div className="think-label">Thinking:</div>
+            <div className="think-content">
+              <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{normalize(p.content)}</ReactMarkdown>
+            </div>
           </div>
         )
       )}
@@ -188,6 +176,14 @@ function ChatInterface() {
     setActiveChatTitle(data.chat.title);
     setMessages(data.chat.messages.map((msg) => ({ ...msg, timestamp: new Date(msg.timestamp) })));
     window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: data.activeChatId, chats: data.chats } }));
+  };
+
+  const resetToFreshChat = () => {
+    setActiveChatId(null);
+    setActiveChatTitle('New chat');
+    setMessages([]);
+    setTasks([]);
+    window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: null, chats: [] } }));
   };
 
   // Load chat history on mount
@@ -230,9 +226,22 @@ function ChatInterface() {
 
     window.addEventListener('requestNewChat', handleCreateRequested);
     window.addEventListener('requestSelectChat', handleSelectRequested);
+    const handleChatResponseLoaded = (event: Event) => {
+      const detail = (event as CustomEvent<ChatLoadResponse>).detail;
+      if (!detail) return;
+      applyChatResponse(detail);
+    };
+    const handleFreshChatReset = () => {
+      resetToFreshChat();
+    };
+
+    window.addEventListener('chatResponseLoaded', handleChatResponseLoaded);
+    window.addEventListener('chatResetToFresh', handleFreshChatReset);
     return () => {
       window.removeEventListener('requestNewChat', handleCreateRequested);
       window.removeEventListener('requestSelectChat', handleSelectRequested);
+      window.removeEventListener('chatResponseLoaded', handleChatResponseLoaded);
+      window.removeEventListener('chatResetToFresh', handleFreshChatReset);
     };
   }, [isTyping, isLoading, activeChatId, messages, activeChatTitle]);
 
@@ -264,11 +273,12 @@ function ChatInterface() {
       if (response.ok) {
         const data: ChatLoadResponse = await response.json();
         applyChatResponse(data);
+      } else {
+        resetToFreshChat();
       }
     } catch (error) {
       console.error('Failed to load chat history:', error);
-      setActiveChatTitle('New chat');
-      setMessages([]);
+      resetToFreshChat();
     } finally {
       setIsLoading(false);
     }
@@ -524,6 +534,17 @@ function ChatInterface() {
 
     // Streaming API call
     try {
+      let ensuredChatId = activeChatId;
+      if (!ensuredChatId) {
+        const createResponse = await fetch(`${API_URL}/history/chats`, { method: 'POST' });
+        if (!createResponse.ok) throw new Error((await createResponse.text()) || 'Failed to create chat');
+        const created: ChatLoadResponse = await createResponse.json();
+        ensuredChatId = created.activeChatId;
+        setActiveChatId(created.activeChatId);
+        setActiveChatTitle(created.chat.title);
+        window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: created.activeChatId, chats: created.chats } }));
+      }
+
       const history = [
         ...messages.map((m) => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
