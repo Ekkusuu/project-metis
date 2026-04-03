@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { API_URL } from '../lib/api';
-import { EditIcon } from './Icons';
+import { CheckIcon, CloseIcon, EditIcon, TrashIcon } from './Icons';
 import './ChatsPanel.css';
 
 type ChatSummary = {
@@ -108,6 +108,27 @@ function ChatsPanel() {
     }
   };
 
+  const handleDeleteChat = async (chat: ChatSummary) => {
+    if (!window.confirm(`Delete chat "${chat.title}"?`)) return;
+
+    try {
+      const response = await fetch(`${API_URL}/history/chats/${encodeURIComponent(chat.id)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error((await response.text()) || 'Failed to delete chat');
+      const data = await response.json();
+      applyState(data);
+      window.dispatchEvent(new CustomEvent('chatResponseLoaded', { detail: data }));
+      window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: data.activeChatId, chats: data.chats } }));
+      if (!data.activeChatId) {
+        window.dispatchEvent(new CustomEvent('chatResetToFresh'));
+      }
+      if (editingChatId === chat.id) cancelRenameChat();
+    } catch (error) {
+      console.error('Failed to delete chat:', error);
+    }
+  };
+
   return (
     <div className="chats-panel">
       <div className="chats-panel-header">
@@ -150,6 +171,7 @@ function ChatsPanel() {
                         value={draftTitle}
                         onChange={(event) => setDraftTitle(event.target.value)}
                         className="chats-panel-item-input"
+                        placeholder="Chat name"
                         autoFocus
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') {
@@ -162,27 +184,34 @@ function ChatsPanel() {
                           }
                         }}
                       />
-                      <button className="chats-panel-item-edit save" onClick={() => void handleRenameChat(chat)} title="Save name" aria-label={`Save ${chat.title}`}>
-                        [ok]
+                      <button className="chats-panel-item-action save" onClick={() => void handleRenameChat(chat)} title="Save name" aria-label={`Save ${chat.title}`}>
+                        <CheckIcon />
                       </button>
-                      <button className="chats-panel-item-edit" onClick={cancelRenameChat} title="Cancel rename" aria-label={`Cancel renaming ${chat.title}`}>
-                        [x]
+                      <button className="chats-panel-item-action" onClick={cancelRenameChat} title="Cancel rename" aria-label={`Cancel renaming ${chat.title}`}>
+                        <CloseIcon />
                       </button>
                     </div>
                   ) : (
                     <>
-                      <div className="chats-panel-item-title">{chat.title}</div>
-                      <button
-                        className="chats-panel-item-edit"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          startRenameChat(chat);
-                        }}
-                        title="Rename chat"
-                        aria-label={`Rename ${chat.title}`}
-                      >
-                        <EditIcon />
-                      </button>
+                      <div className="chats-panel-item-title" title={chat.title}>{chat.title}</div>
+                      <div className="chats-panel-item-actions" onClick={(event) => event.stopPropagation()}>
+                        <button
+                          className="chats-panel-item-edit"
+                          onClick={() => startRenameChat(chat)}
+                          title="Rename chat"
+                          aria-label={`Rename ${chat.title}`}
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          className="chats-panel-item-edit delete"
+                          onClick={() => void handleDeleteChat(chat)}
+                          title="Delete chat"
+                          aria-label={`Delete ${chat.title}`}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>

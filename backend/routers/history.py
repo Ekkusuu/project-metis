@@ -50,13 +50,13 @@ class ChatSummary(BaseModel):
 
 
 class ChatLoadResponse(BaseModel):
-    activeChatId: str
+    activeChatId: Optional[str]
     chats: List[ChatSummary]
     chat: ChatHistory
 
 
 class ChatListResponse(BaseModel):
-    activeChatId: str
+    activeChatId: Optional[str]
     chats: List[ChatSummary]
 
 
@@ -155,19 +155,19 @@ def _normalize_chat(raw: Any) -> Optional[Dict[str, Any]]:
 
 def _load_store() -> Dict[str, Any]:
     if not CHAT_HISTORY_FILE.exists():
-        chat = _new_chat()
-        return {"activeChatId": chat["id"], "chats": [chat]}
+        return {"activeChatId": None, "chats": []}
 
     with open(CHAT_HISTORY_FILE, "r", encoding="utf-8") as handle:
         raw = json.load(handle)
 
     if isinstance(raw, dict) and isinstance(raw.get("chats"), list):
         chats = [chat for item in raw["chats"] if (chat := _normalize_chat(item))]
-        if not chats:
-            chats = [_new_chat()]
-        active_chat_id = str(raw.get("activeChatId") or chats[0]["id"])
-        if not any(chat["id"] == active_chat_id for chat in chats):
+        active_raw = raw.get("activeChatId")
+        active_chat_id = str(active_raw) if active_raw else None
+        if chats and (not active_chat_id or not any(chat["id"] == active_chat_id for chat in chats)):
             active_chat_id = chats[0]["id"]
+        if not chats:
+            active_chat_id = None
         return {"activeChatId": active_chat_id, "chats": chats}
 
     # Migrate legacy single-chat format.
@@ -217,6 +217,19 @@ def _build_load_response(store: Dict[str, Any], chat: Dict[str, Any]) -> ChatLoa
     )
 
 
+def _build_fresh_chat_response(store: Dict[str, Any]) -> ChatLoadResponse:
+    return ChatLoadResponse(
+        activeChatId=None,
+        chats=[ChatSummary(**_chat_summary(item)) for item in store["chats"]],
+        chat=ChatHistory(
+            chatId=None,
+            title="New chat",
+            messages=[],
+            lastUpdated=_now_iso(),
+        ),
+    )
+
+
 def _save_messages_to_memory(messages: List[Dict[str, Any]]) -> None:
     def save_in_background() -> None:
         try:
@@ -245,6 +258,9 @@ async def list_chats() -> ChatListResponse:
 async def load_chat_history(chat_id: str | None = Query(default=None)) -> ChatLoadResponse:
     try:
         store = _load_store()
+        if not store["chats"]:
+            _save_store(store)
+            return _build_fresh_chat_response(store)
         target_id = chat_id or store["activeChatId"]
         chat = _get_chat_or_raise(store, target_id)
         store["activeChatId"] = chat["id"]
@@ -292,12 +308,40 @@ async def rename_chat(chat_id: str, payload: ChatRenamePayload) -> ChatLoadRespo
         raise HTTPException(status_code=500, detail=f"Failed to rename chat: {exc}")
 
 
+@router.delete("/chats/{chat_id}", response_model=ChatLoadResponse)
+async def delete_chat(chat_id: str) -> ChatLoadResponse:
+    try:
+        store = _load_store()
+        chat = _get_chat_or_raise(store, chat_id)
+        store["chats"] = [item for item in store["chats"] if item["id"] != chat["id"]]
+
+        if not store["chats"]:
+            store["activeChatId"] = None
+            _save_store(store)
+            return _build_fresh_chat_response(store)
+
+        if store["activeChatId"] == chat["id"]:
+            store["activeChatId"] = store["chats"][0]["id"]
+
+        _save_store(store)
+        active_chat = _get_chat_or_raise(store, store["activeChatId"])
+        return _build_load_response(store, active_chat)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete chat: {exc}")
+
+
 @router.post("/save", response_model=ChatLoadResponse)
 async def save_chat_history(history: ChatHistory) -> ChatLoadResponse:
     try:
         store = _load_store()
         target_id = history.chatId or store["activeChatId"]
-        chat = _get_chat_or_raise(store, target_id)
+        if target_id:
+            chat = _get_chat_or_raise(store, target_id)
+        else:
+            chat = _new_chat()
+            store["chats"] = [chat, *store["chats"]]
         messages = [message.model_dump() for message in history.messages]
         messages = _strip_legacy_greeting(messages)
 

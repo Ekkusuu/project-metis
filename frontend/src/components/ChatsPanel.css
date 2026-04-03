@@ -116,24 +116,35 @@
   white-space: nowrap;
 }
 
+.chats-panel-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
 .chats-panel-item-rename {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
 }
 
 .chats-panel-item-input {
   flex: 1;
   min-width: 0;
-  height: 1.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
+  height: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
   color: #f1f3f5;
-  padding: 0 0.55rem;
+  padding: 0 0.65rem;
   font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
 }
 
 .chats-panel-item-input:focus {
@@ -142,7 +153,8 @@
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
 }
 
-.chats-panel-item-edit {
+.chats-panel-item-edit,
+.chats-panel-item-action {
   min-width: 1.75rem;
   height: 1.75rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -159,24 +171,38 @@
   opacity: 0.72;
 }
 
-.chats-panel-item-edit.save {
-  min-width: auto;
-  padding: 0 0.4rem;
+.chats-panel-item-action {
+  min-width: 1.85rem;
+  width: 1.85rem;
+  height: 1.85rem;
+  opacity: 1;
 }
 
-.chats-panel-item-edit:hover:not(:disabled) {
+.chats-panel-item-action.save {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.chats-panel-item-edit.delete:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.chats-panel-item-edit:hover:not(:disabled),
+.chats-panel-item-action:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.28);
   color: #ffffff;
   opacity: 1;
 }
 
-.chats-panel-item-edit:disabled {
+.chats-panel-item-edit:disabled,
+.chats-panel-item-action:disabled {
   opacity: 0.55;
   cursor: default;
 }
 
-.chats-panel-item-edit svg {
+.chats-panel-item-edit svg,
+.chats-panel-item-action svg {
   width: 0.9rem;
   height: 0.9rem;
   display: block;
