@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import yaml
 import requests
 from requests.adapters import HTTPAdapter
@@ -15,6 +16,30 @@ _config: Optional[Dict[str, Any]] = None
 # Default paths
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
 LOCAL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.local.yaml"
+
+
+def strip_thinking_tags(text: str) -> str:
+    """Prefer the final answer text, but fall back to thinking content if no final text exists."""
+    if not text:
+        return text
+
+    original = text.strip()
+    think_blocks = re.findall(r"<think>(.*?)</think>", original, flags=re.DOTALL | re.IGNORECASE)
+
+    cleaned = re.sub(r"<think>.*?</think>", "", original, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"^.*?</think>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"</?think>", "", cleaned, flags=re.IGNORECASE).strip()
+
+    if cleaned:
+        return cleaned
+
+    if think_blocks:
+        fallback = "\n\n".join(block.strip() for block in think_blocks if block.strip()).strip()
+        if fallback:
+            return fallback
+
+    return original
 
 
 def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:

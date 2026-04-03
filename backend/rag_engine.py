@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any
 import chromadb
 from chromadb.config import Settings
 
-from backend.llama_engine import get_config, chat_completion
+from backend.llama_engine import get_config, chat_completion, strip_thinking_tags
 
 # Global ChromaDB client
 _chroma_client: Optional[chromadb.Client] = None
@@ -576,17 +576,6 @@ def generate_rag_query(messages: List[Dict[str, str]], last_user_message: str) -
     Returns:
         A search query string optimized for RAG retrieval
     """
-    def strip_thinking_tags(text: str) -> str:
-        """Remove <think> tags and their content from reasoning model output."""
-        import re
-        # Remove complete <think>...</think> blocks (handles multiline)
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        # Remove everything before </think> if only closing tag is present
-        text = re.sub(r'^.*?</think>\s*', '', text, flags=re.DOTALL | re.IGNORECASE)
-        # Remove any remaining stray tags
-        text = re.sub(r'</?think>', '', text, flags=re.IGNORECASE)
-        return text.strip()
-    
     config = get_config()
     rag_cfg = config.get("rag", {})
     query_context_messages = rag_cfg.get("query_context_messages", 0)
@@ -705,6 +694,7 @@ def generate_rag_queries(messages: List[Dict[str, str]], last_user_message: str)
 
         # Use deterministic sampling and a small token budget; queries should be short
         generated = chat_completion(llm_messages, temperature=0.0, top_p=0.5, max_tokens=128)
+        generated = strip_thinking_tags(generated)
         if not generated:
             return [last_user_message] * req_count
 
