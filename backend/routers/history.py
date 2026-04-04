@@ -34,10 +34,36 @@ class Message(BaseModel):
     planningNotes: Optional[List[Dict[str, Any]]] = None
 
 
+class TaskSnapshotItem(BaseModel):
+    id: str
+    content: str
+    status: str
+
+
+class RagResultSnapshot(BaseModel):
+    source_file: str
+    distance: float
+    rerank_score: Optional[float] = None
+    text_preview: str
+    text: str
+    chunk_index: int
+    used: bool
+    rejection_reason: Optional[str] = None
+
+
+class RagRetrievalSnapshot(BaseModel):
+    query: Optional[str] = None
+    queries: Optional[List[str]] = None
+    original_query: Optional[str] = None
+    results: List[RagResultSnapshot] = []
+
+
 class ChatHistory(BaseModel):
     chatId: Optional[str] = None
     title: Optional[str] = None
     messages: List[Message]
+    tasks: List[TaskSnapshotItem] = []
+    ragData: RagRetrievalSnapshot = RagRetrievalSnapshot()
     lastUpdated: str
 
 
@@ -89,6 +115,8 @@ def _new_chat(title: str = "New chat") -> Dict[str, Any]:
         "title": title,
         "customTitle": False,
         "messages": _initial_messages(),
+        "tasks": [],
+        "ragData": {"results": []},
         "lastUpdated": _now_iso(),
         "createdAt": _now_iso(),
     }
@@ -143,11 +171,32 @@ def _normalize_chat(raw: Any) -> Optional[Dict[str, Any]]:
     fallback_title = str(raw.get("title") or "").strip() or "New chat"
     title = _derive_title(normalized_messages, fallback_title)
 
+    raw_tasks = raw.get("tasks")
+    normalized_tasks = []
+    if isinstance(raw_tasks, list):
+        for item in raw_tasks:
+            if not isinstance(item, dict):
+                continue
+            try:
+                normalized_tasks.append(TaskSnapshotItem(**item).model_dump())
+            except Exception:
+                continue
+
+    raw_rag_data = raw.get("ragData")
+    normalized_rag_data = RagRetrievalSnapshot().model_dump()
+    if isinstance(raw_rag_data, dict):
+        try:
+            normalized_rag_data = RagRetrievalSnapshot(**raw_rag_data).model_dump()
+        except Exception:
+            pass
+
     return {
         "id": str(raw.get("id") or uuid4()),
         "title": title,
         "customTitle": bool(raw.get("customTitle", False)),
         "messages": normalized_messages,
+        "tasks": normalized_tasks,
+        "ragData": normalized_rag_data,
         "lastUpdated": str(raw.get("lastUpdated") or _now_iso()),
         "createdAt": str(raw.get("createdAt") or _now_iso()),
     }
@@ -212,6 +261,8 @@ def _build_load_response(store: Dict[str, Any], chat: Dict[str, Any]) -> ChatLoa
             chatId=chat["id"],
             title=chat["title"],
             messages=[Message(**item) for item in chat["messages"]],
+            tasks=[TaskSnapshotItem(**item) for item in chat.get("tasks", [])],
+            ragData=RagRetrievalSnapshot(**chat.get("ragData", {"results": []})),
             lastUpdated=chat["lastUpdated"],
         ),
     )
@@ -225,6 +276,8 @@ def _build_fresh_chat_response(store: Dict[str, Any]) -> ChatLoadResponse:
             chatId=None,
             title="New chat",
             messages=[],
+            tasks=[],
+            ragData=RagRetrievalSnapshot(),
             lastUpdated=_now_iso(),
         ),
     )
@@ -344,8 +397,12 @@ async def save_chat_history(history: ChatHistory) -> ChatLoadResponse:
             store["chats"] = [chat, *store["chats"]]
         messages = [message.model_dump() for message in history.messages]
         messages = _strip_legacy_greeting(messages)
+        tasks = [task.model_dump() for task in history.tasks]
+        rag_data = history.ragData.model_dump()
 
         chat["messages"] = messages
+        chat["tasks"] = tasks
+        chat["ragData"] = rag_data
         chat["lastUpdated"] = _now_iso()
         if chat.get("customTitle"):
             chat["title"] = str(history.title or chat["title"] or "New chat").strip() or "New chat"
@@ -377,6 +434,8 @@ async def reset_chat_history(chat_id: str | None = Query(default=None)) -> ChatL
             _save_messages_to_memory(existing_messages)
 
         chat["messages"] = _initial_messages()
+        chat["tasks"] = []
+        chat["ragData"] = RagRetrievalSnapshot().model_dump()
         chat["lastUpdated"] = _now_iso()
         chat["title"] = "New chat"
         chat["customTitle"] = False

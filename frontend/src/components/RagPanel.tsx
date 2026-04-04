@@ -84,12 +84,23 @@ function RagPanel() {
       fetchRagResults();
     };
 
+    const handleChatRagDataLoaded = (event: Event) => {
+      const detail = (event as CustomEvent<RagRetrievalData>).detail;
+      if (detail && Array.isArray(detail.results)) {
+        setRagData(detail);
+      } else {
+        setRagData({ results: [] });
+      }
+    };
+
     window.addEventListener('ragRetrievalComplete', handleRagRetrieval);
     window.addEventListener('messageComplete', handleMessageComplete);
+    window.addEventListener('chatRagDataLoaded', handleChatRagDataLoaded);
     
     return () => {
       window.removeEventListener('ragRetrievalComplete', handleRagRetrieval);
       window.removeEventListener('messageComplete', handleMessageComplete);
+      window.removeEventListener('chatRagDataLoaded', handleChatRagDataLoaded);
     };
   }, []);
 

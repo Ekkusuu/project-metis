@@ -7,6 +7,8 @@ import { API_URL } from '../lib/api';
 import PlanPanel, { type PlanTask } from './PlanPanel';
 import { EditIcon, PlusIcon } from './Icons';
 
+const CONTEXT_WINDOW_TOKENS = 8192;
+
 interface Message {
   id: string;
   text: string;
@@ -28,6 +30,24 @@ interface ChatSummary {
   preview: string;
 }
 
+interface RagResultSnapshot {
+  source_file: string;
+  distance: number;
+  rerank_score?: number;
+  text_preview: string;
+  text: string;
+  chunk_index: number;
+  used: boolean;
+  rejection_reason?: string;
+}
+
+interface RagRetrievalSnapshot {
+  query?: string;
+  queries?: string[];
+  original_query?: string;
+  results: RagResultSnapshot[];
+}
+
 interface ChatLoadResponse {
   activeChatId: string | null;
   chats: ChatSummary[];
@@ -35,6 +55,8 @@ interface ChatLoadResponse {
     chatId: string | null;
     title: string;
     messages: Array<Omit<Message, 'timestamp'> & { timestamp: string }>;
+    tasks: PlanTask[];
+    ragData: RagRetrievalSnapshot;
     lastUpdated: string;
   };
 }
@@ -162,6 +184,7 @@ function ChatInterface() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChatTitle, setActiveChatTitle] = useState('New chat');
   const [tasks, setTasks] = useState<PlanTask[]>([]);
+  const [ragData, setRagData] = useState<RagRetrievalSnapshot>({ results: [] });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showTypingIndicator, setShowTypingIndicator] = useState(false);
@@ -171,11 +194,25 @@ function ChatInterface() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const estimatedContextTokens = Math.min(
+    CONTEXT_WINDOW_TOKENS,
+    messages.reduce((total, message) => {
+      const planningText = (message.planningNotes || []).map((note) => note.note).join(' ');
+      const chars = `${message.text} ${planningText}`.trim().length;
+      return total + Math.ceil(chars / 4) + 12;
+    }, 0)
+  );
+  const contextUsagePercent = Math.max(0, Math.min(100, Math.round((estimatedContextTokens / CONTEXT_WINDOW_TOKENS) * 100)));
+
   const applyChatResponse = (data: ChatLoadResponse) => {
     setActiveChatId(data.activeChatId);
     setActiveChatTitle(data.chat.title);
     setMessages(data.chat.messages.map((msg) => ({ ...msg, timestamp: new Date(msg.timestamp) })));
+    setTasks(Array.isArray(data.chat.tasks) ? data.chat.tasks : []);
+    const nextRagData = data.chat.ragData && Array.isArray(data.chat.ragData.results) ? data.chat.ragData : { results: [] };
+    setRagData(nextRagData);
     window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: data.activeChatId, chats: data.chats } }));
+    window.dispatchEvent(new CustomEvent('chatRagDataLoaded', { detail: nextRagData }));
   };
 
   const resetToFreshChat = () => {
@@ -183,7 +220,9 @@ function ChatInterface() {
     setActiveChatTitle('New chat');
     setMessages([]);
     setTasks([]);
+    setRagData({ results: [] });
     window.dispatchEvent(new CustomEvent('chatStateUpdated', { detail: { activeChatId: null, chats: [] } }));
+    window.dispatchEvent(new CustomEvent('chatRagDataLoaded', { detail: { results: [] } }));
   };
 
   // Load chat history on mount
@@ -212,6 +251,38 @@ function ChatInterface() {
     window.addEventListener('messageComplete', handleMessageComplete);
     return () => window.removeEventListener('messageComplete', handleMessageComplete);
   }, []);
+
+  useEffect(() => {
+    const fetchLatestRagData = async () => {
+      try {
+        const response = await fetch(`${API_URL}/rag/last-retrieval`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const nextRagData = data.results && Array.isArray(data.results.results)
+          ? data.results
+          : Array.isArray(data.results)
+            ? { results: data.results }
+            : { results: [] };
+        setRagData(nextRagData);
+        window.dispatchEvent(new CustomEvent('chatRagDataLoaded', { detail: nextRagData }));
+      } catch (error) {
+        console.error('Failed to fetch latest RAG retrieval:', error);
+      }
+    };
+
+    window.addEventListener('ragRetrievalComplete', fetchLatestRagData);
+    return () => window.removeEventListener('ragRetrievalComplete', fetchLatestRagData);
+  }, []);
+
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    const timeout = window.setTimeout(() => {
+      void saveChatHistory();
+    }, 150);
+
+    return () => window.clearTimeout(timeout);
+  }, [ragData, activeChatId]);
 
   useEffect(() => {
     const handleCreateRequested = () => {
@@ -479,6 +550,8 @@ function ChatInterface() {
             ...msg,
             timestamp: msg.timestamp.toISOString(),
           })),
+          tasks,
+          ragData,
           lastUpdated: new Date().toISOString(),
         }),
       });
@@ -636,9 +709,19 @@ function ChatInterface() {
       <div className="chat-container">
       <div className="chat-header">
         <div className="header-content">
-          <div className="header-text">
-            <h1>{activeChatTitle}</h1>
-            <p className="subtitle">Your AI Assistant</p>
+          <div className="header-main">
+            <div className="header-text">
+              <h1>{activeChatTitle}</h1>
+              <div className="context-indicator" title={`Estimated context usage: ${estimatedContextTokens} of ${CONTEXT_WINDOW_TOKENS} tokens`}>
+                <div className="context-indicator-line">
+                  <span className="context-indicator-prompt">Context</span>
+                  <span className="context-indicator-separator">:</span>
+                  <span className="context-indicator-value">{estimatedContextTokens.toLocaleString()} tokens</span>
+                  <span className="context-indicator-separator">/</span>
+                  <span className="context-indicator-meta">{contextUsagePercent}% used</span>
+                </div>
+              </div>
+            </div>
           </div>
           <button onClick={handleCreateChat} className="reset-button" title="New chat" disabled={isTyping || isLoading}>
             <PlusIcon className="button-icon" />

@@ -135,7 +135,7 @@
 }
 
 .chat-header {
-  padding: 2rem 2.5rem;
+  padding: 1rem 2rem;
   background: rgba(20, 26, 33, 0.88);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(188, 197, 206, 0.12);
@@ -145,26 +145,81 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1rem;
+}
+
+.header-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .header-text {
-  flex: 1;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .chat-header h1 {
-  font-size: 1.75rem;
+  font-size: 1.2rem;
   margin: 0;
   color: var(--text-primary);
-  font-weight: 500;
-  letter-spacing: 0.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
 }
 
 .subtitle {
-  margin: 0.5rem 0 0 0;
-  font-size: 0.95rem;
+  margin: 0.2rem 0 0 0;
+  font-size: 0.78rem;
   color: var(--text-muted);
   opacity: 0.8;
+}
+
+.context-indicator {
+  width: fit-content;
+  min-width: 0;
+  margin-top: 0.28rem;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  opacity: 0.9;
+}
+
+.context-indicator-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.context-indicator-prompt {
+  color: #f0ece5;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: none;
+}
+
+.context-indicator-separator {
+  color: #6f7c88;
+  font-size: 0.68rem;
+}
+
+.context-indicator-fill {
+  display: none;
+}
+
+.context-indicator-value {
+  color: #c5cfd9;
+  font-size: 0.74rem;
+  line-height: 1.2;
+}
+
+.context-indicator-meta {
+  color: #8f9aa5;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
 }
 
 .reset-button {
@@ -184,6 +239,7 @@
   white-space: nowrap;
   backdrop-filter: blur(8px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
 }
 
 .reset-button:hover {
@@ -807,17 +863,29 @@
   }
 
   .chat-header {
-    padding: 1.5rem 1.75rem;
+    padding: 1rem 1.25rem;
   }
 
   .header-content {
-    flex-direction: row;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: stretch;
     gap: 1rem;
   }
 
+  .header-main {
+    width: 100%;
+  }
+
   .chat-header h1 {
-    font-size: 1.5rem;
+    font-size: 1.1rem;
+  }
+
+  .context-indicator {
+    width: auto;
+  }
+
+  .context-indicator-line {
+    flex-wrap: wrap;
   }
 
   .reset-button {
