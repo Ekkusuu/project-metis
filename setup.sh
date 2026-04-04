@@ -4,6 +4,7 @@ set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR" || exit 1
+VENV_DIR="$SCRIPT_DIR/venv"
 
 if command -v python3 >/dev/null 2>&1; then
   PYTHON_BIN="python3"
@@ -87,6 +88,16 @@ install_node() {
 
 echo "Starting Project Metis setup..."
 echo
+
+echo "Preparing Python virtual environment..."
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  echo "Creating virtual environment at $VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR" || exit $?
+fi
+
+PYTHON_BIN="$VENV_DIR/bin/python"
+# shellcheck disable=SC1091
+. "$VENV_DIR/bin/activate"
 
 install_python
 PYTHON_EXIT=$?
