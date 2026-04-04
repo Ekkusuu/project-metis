@@ -2,13 +2,47 @@ from __future__ import annotations
 
 import os
 import json
+import re
+import yaml
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 import chromadb
 from chromadb.config import Settings
 
-from backend.llama_engine import get_config, chat_completion, strip_thinking_tags
+from backend.llama_engine import get_config, chat_completion, strip_to_final_text
+
+
+def _extract_yaml_candidate(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return raw
+
+    fenced_match = re.search(r"```(?:yaml|yml)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    if fenced_match:
+        return fenced_match.group(1).strip()
+
+    tasks_match = re.search(r"(?:^|\n)(query\s*:.*|queries\s*:.*)$", raw, re.DOTALL | re.IGNORECASE)
+    if tasks_match:
+        return tasks_match.group(1).strip()
+
+    return raw
+
+
+def _normalize_query_list(queries: List[str], fallback_query: str) -> List[str]:
+    cleaned: List[str] = []
+    seen = set()
+    for query in queries:
+        normalized = str(query).strip().strip('"').strip("'")
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(normalized)
+
+    return cleaned or [fallback_query]
 
 # Global ChromaDB client
 _chroma_client: Optional[chromadb.Client] = None
@@ -580,8 +614,8 @@ def generate_rag_query(messages: List[Dict[str, str]], last_user_message: str) -
     rag_cfg = config.get("rag", {})
     query_context_messages = rag_cfg.get("query_context_messages", 0)
     
-    # If set to 0 or no conversation history, use simple query
-    if query_context_messages <= 0 or not messages or len(messages) <= 1:
+    # If contextual query generation is disabled, use the raw user message.
+    if query_context_messages <= 0:
         return last_user_message
     
     # Get the last k messages (excluding system messages)
@@ -590,14 +624,10 @@ def generate_rag_query(messages: List[Dict[str, str]], last_user_message: str) -
         if msg.get("role") in ["user", "assistant"]
     ]
     
-    # If not enough context, use simple query
-    if len(recent_messages) <= 1:
-        return last_user_message
-    
-    # Build conversation context
+    # Build conversation context. On the first turn this may be empty, which is fine.
     conversation_context = "\n".join([
         f"{'User' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
-        for msg in recent_messages[:-1]  # Exclude the last message
+        for msg in recent_messages[:-1]
     ])
     
     try:
@@ -617,13 +647,22 @@ def generate_rag_query(messages: List[Dict[str, str]], last_user_message: str) -
             {"role": "user", "content": user_prompt}
         ]
 
-        # Generate query with low temperature for consistency
-        generated_query = chat_completion(llm_messages, temperature=0.2, max_tokens=1500)
-        
-        # Strip thinking tags from reasoning models
-        generated_query = strip_thinking_tags(generated_query)
-        
-        # Clean up the query
+        # Give reasoning models enough room to reach the final YAML/query output.
+        generated_query = chat_completion(llm_messages, temperature=0.2, max_tokens=1800)
+        print("\n[rag] raw single-query output:\n" + str(generated_query) + "\n")
+        generated_query = strip_to_final_text(generated_query)
+
+        yaml_candidate = _extract_yaml_candidate(generated_query)
+        parsed_yaml = yaml.safe_load(yaml_candidate) if yaml_candidate else None
+        if isinstance(parsed_yaml, dict):
+            if isinstance(parsed_yaml.get("query"), str):
+                generated_query = parsed_yaml["query"].strip()
+            elif isinstance(parsed_yaml.get("queries"), list) and parsed_yaml["queries"]:
+                first_query = parsed_yaml["queries"][0]
+                generated_query = str(first_query).strip() if first_query is not None else ""
+        elif isinstance(parsed_yaml, list) and parsed_yaml:
+            generated_query = str(parsed_yaml[0]).strip()
+
         generated_query = generated_query.strip().strip('"').strip("'")
         
         # Sanity check: if generated query is empty or too short, use original
@@ -658,19 +697,15 @@ def generate_rag_queries(messages: List[Dict[str, str]], last_user_message: str)
     if req_count <= 1:
         return [generate_rag_query(messages, last_user_message)]
 
-    # Build conversation context as before
+    # If contextual query generation is disabled, use repeated raw queries.
     query_context_messages = rag_cfg.get("query_context_messages", 0)
-    if query_context_messages <= 0 or not messages or len(messages) <= 1:
-        # Return repeated simple queries (same last message) if no context
+    if query_context_messages <= 0:
         return [last_user_message] * req_count
 
     recent_messages = [
         msg for msg in messages[-query_context_messages-1:]
         if msg.get("role") in ["user", "assistant"]
     ]
-
-    if len(recent_messages) <= 1:
-        return [last_user_message] * req_count
 
     conversation_context = "\n".join([
         f"{'User' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
@@ -681,42 +716,52 @@ def generate_rag_queries(messages: List[Dict[str, str]], last_user_message: str)
         system_prompt = rag_cfg.get("query_generation_system_prompt", "")
         user_prompt_template = rag_cfg.get("query_generation_user_prompt", "")
 
-        # Encourage the model to emit exactly N queries, one per line
         user_prompt = user_prompt_template.format(
             conversation_context=conversation_context,
             last_user_message=last_user_message
-        ) + f"\n\nPlease output {req_count} queries, one per line."
+        ) + (
+            "\n\nReturn ONLY valid YAML in this exact shape:\n"
+            "queries:\n"
+            "  - first query\n"
+            "  - second query\n"
+            "  - third query\n"
+            f"Return exactly {req_count} concise search queries."
+        )
 
         llm_messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
 
-        # Use deterministic sampling and a small token budget; queries should be short
-        generated = chat_completion(llm_messages, temperature=0.0, top_p=0.5, max_tokens=128)
-        generated = strip_thinking_tags(generated)
+        # Give reasoning models room to finish the final YAML after internal reasoning.
+        generated = chat_completion(llm_messages, temperature=0.0, top_p=0.5, max_tokens=384)
+        print("\n[rag] raw multi-query output:\n" + str(generated) + "\n")
+        generated = strip_to_final_text(generated)
+        print("[rag] stripped multi-query output:\n" + str(generated) + "\n")
         if not generated:
-            return [last_user_message] * req_count
+            return [last_user_message]
 
-        # Split into lines and extract up to req_count non-empty lines
-        lines = [line.strip() for line in generated.splitlines() if line.strip()]
         queries: List[str] = []
-        for ln in lines:
-            # If the model emits numbered lines like '1. ...', strip numbering
-            import re
-            q = re.sub(r'^\s*\d+\s*[-.)]*\s*', '', ln)
-            queries.append(q.strip())
-            if len(queries) >= req_count:
-                break
+        yaml_candidate = _extract_yaml_candidate(generated)
+        parsed_yaml = yaml.safe_load(yaml_candidate) if yaml_candidate else None
+        if isinstance(parsed_yaml, dict) and isinstance(parsed_yaml.get("queries"), list):
+            queries = [str(item).strip() for item in parsed_yaml["queries"] if str(item).strip()]
+        elif isinstance(parsed_yaml, list):
+            queries = [str(item).strip() for item in parsed_yaml if str(item).strip()]
 
-        # If we didn't get enough, pad with the last user message
-        while len(queries) < req_count:
-            queries.append(last_user_message)
+        if not queries:
+            lines = [line.strip() for line in generated.splitlines() if line.strip()]
+            for ln in lines:
+                q = re.sub(r'^\s*\d+\s*[-.)]*\s*', '', ln).strip()
+                if q and '<think' not in q.lower() and '</think>' not in q.lower():
+                    queries.append(q)
 
-        return queries
+        normalized_queries = _normalize_query_list(queries[:req_count], last_user_message)
+        print(f"[rag] parsed multi-query list: {normalized_queries}")
+        return normalized_queries
     except Exception as e:
         print(f"Error generating multiple RAG queries: {e}")
-        return [last_user_message] * req_count
+        return [last_user_message]
 
 
 def retrieve_context(query: str, top_k: Optional[int] = None) -> Dict[str, List[Dict[str, Any]]]:

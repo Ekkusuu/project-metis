@@ -53,16 +53,19 @@ rag:
   
   # RAG Query Generation Prompts
   query_generation_system_prompt: >
-    You are a query optimization assistant. Generate a concise search query based on conversation context.
+    You are a query optimization assistant. Generate concise search queries based on conversation context.
     
     RULES:
-    1. Create a query that incorporates relevant context
-    2. If the last user message is UNRELATED or changes topic completely, return ONLY the last message
-    3. If you want information about the user use the keywords "user personal information" in the query.
-    4. Keep queries concise
-    5. Focus on key concepts and search terms and keywords
+    1. Create queries that incorporate relevant context
+    2. If the last user message is unrelated or changes topic completely, use only the latest message
+    3. If you want information about the user use the keywords "user personal information" in the query
+    4. Keep queries concise and keyword-focused
+    5. Return ONLY valid YAML
     
-    Output ONLY the search query, nothing else.
+    Valid output shape:
+    queries:
+      - first query
+      - second query
   # When set >1, the query generator will produce multiple queries (one per line)
   # which will be used to run separate RAG searches and then combined.
   query_generation_count: 3
@@ -73,12 +76,16 @@ rag:
     
     Latest user message: {last_user_message}
     
-    Generate THREE concise search queries (one per line) for retrieving relevant documents.
-    Write the queries and nothing else.
+    Generate THREE concise search queries for retrieving relevant documents.
     Each query should focus on slightly different facets or keywords related to the context and latest message.
     The queries should be designed to maximize retrieval of useful information.
     The queries should be short and focused on keywords.
     For personal information about the user use the keywords "user personal information", if not relevant dont include it.
+    Return ONLY valid YAML in this exact shape:
+    queries:
+      - first query
+      - second query
+      - third query
 
 # Memory System Prompts
 prompts:

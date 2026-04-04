@@ -42,6 +42,18 @@ def strip_thinking_tags(text: str) -> str:
     return original
 
 
+def strip_to_final_text(text: str) -> str:
+    """Remove thinking blocks and return only the final visible text."""
+    if not text:
+        return text
+
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"^.*?</think>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"</?think>", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge override into base and return merged dict."""
     merged = dict(base)
