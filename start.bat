@@ -1,4 +1,15 @@
 @echo off
+setlocal EnableExtensions
+set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
+set "VENV_DIR=%SCRIPT_DIR%venv"
+
+if not exist "%VENV_DIR%\Scripts\python.exe" (
+  echo Error: virtual environment not found at %VENV_DIR%
+  echo Run setup.bat first.
+  exit /b 1
+)
+
 echo ============================================================
 echo Starting Project Metis Services
 echo ============================================================
@@ -13,7 +24,7 @@ timeout /t 5 /nobreak
 
 REM Start the Python backend
 echo Starting FastAPI Backend (Python)...
-start "Metis Backend" cmd /k "uvicorn backend.main:app --reload"
+start "Metis Backend" cmd /k call "%VENV_DIR%\Scripts\activate.bat" ^&^& uvicorn backend.main:app --reload
 
 REM Wait a bit for the backend to start
 timeout /t 3 /nobreak
@@ -24,7 +35,7 @@ start "Metis Frontend" cmd /k "cd frontend && npm run dev"
 
 REM Open the app once all services are ready
 echo Waiting for services to become ready and opening the app...
-start "Metis Browser Launcher" /min cmd /c "python open_when_ready.py --url http://localhost:5173 --wait-for http://localhost:3000/health --wait-for http://localhost:8000/health --wait-for http://localhost:5173 --timeout 300"
+start "Metis Browser Launcher" /min cmd /c call "%VENV_DIR%\Scripts\activate.bat" ^&^& python open_when_ready.py --url http://localhost:5173 --wait-for http://localhost:3000/health --wait-for http://localhost:8000/health --wait-for http://localhost:5173 --timeout 300
 
 echo.
 echo ============================================================
@@ -35,8 +46,6 @@ echo Backend API: http://localhost:8000
 echo Frontend: http://localhost:5173
 echo ============================================================
 echo.
-echo Press any key to stop all services...
-pause >nul
-
-REM Kill all service windows
-taskkill /FI "WindowTitle eq Metis*" /F
+echo Services are running in their own windows.
+echo Close those windows individually when you want to stop them.
+exit /b 0

@@ -3,6 +3,7 @@ setlocal EnableExtensions
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
+set "VENV_DIR=%SCRIPT_DIR%venv"
 
 where python >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
@@ -27,23 +28,37 @@ if not defined TORCH_INDEX_URL set "TORCH_INDEX_URL=https://download.pytorch.org
 
 echo Starting Project Metis setup...
 echo.
+echo Preparing Python virtual environment...
+
+if not exist "%VENV_DIR%\Scripts\python.exe" (
+    echo Creating virtual environment at %VENV_DIR%
+    call "%PYTHON_BIN%" -m venv "%VENV_DIR%"
+    if %ERRORLEVEL% NEQ 0 (
+        echo Failed to create virtual environment.
+        exit /b %ERRORLEVEL%
+    )
+)
+
+set "PYTHON_BIN=%VENV_DIR%\Scripts\python.exe"
+set "VENV_ACTIVATE=%VENV_DIR%\Scripts\activate.bat"
+
 echo Installing Python dependencies...
 echo Using Python binary: %PYTHON_BIN%
-echo TIP: Activate your virtual environment first if you use one.
+call "%VENV_ACTIVATE%"
 
-call %PYTHON_BIN% -m pip install --upgrade pip
+call "%PYTHON_BIN%" -m pip install --upgrade pip
 if %ERRORLEVEL% NEQ 0 (
     echo pip upgrade failed; continuing anyway...
 )
 
-call %PYTHON_BIN% -m pip install -r "%SCRIPT_DIR%requirements.txt"
+call "%PYTHON_BIN%" -m pip install -r "%SCRIPT_DIR%requirements.txt"
 if %ERRORLEVEL% NEQ 0 (
     set "PYTHON_ERR=%ERRORLEVEL%"
     goto after_python
 )
 
-call %PYTHON_BIN% -m pip uninstall -y torch torchvision torchaudio >nul 2>nul
-call %PYTHON_BIN% -m pip install torch torchvision torchaudio --index-url "%TORCH_INDEX_URL%"
+call "%PYTHON_BIN%" -m pip uninstall -y torch torchvision torchaudio >nul 2>nul
+call "%PYTHON_BIN%" -m pip install torch torchvision torchaudio --index-url "%TORCH_INDEX_URL%"
 if %ERRORLEVEL% NEQ 0 (
     set "PYTHON_ERR=%ERRORLEVEL%"
     goto after_python

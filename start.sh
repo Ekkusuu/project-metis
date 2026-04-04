@@ -7,15 +7,17 @@ set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR" || exit 1
+VENV_DIR="$SCRIPT_DIR/venv"
 
-if command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-  PYTHON_BIN="python"
-else
-  echo "Error: Python is not installed or not in PATH."
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  echo "Error: virtual environment not found at $VENV_DIR"
+  echo "Run setup.sh first."
   exit 1
 fi
+
+# shellcheck disable=SC1091
+. "$VENV_DIR/bin/activate"
+PYTHON_BIN="$VENV_DIR/bin/python"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "Error: npm is not installed or not in PATH."
