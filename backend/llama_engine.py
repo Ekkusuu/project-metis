@@ -127,6 +127,40 @@ def get_config() -> Dict[str, Any]:
     return load_config()
 
 
+def get_base_config() -> Dict[str, Any]:
+    """Get config defaults merged with config.yaml, without local overrides."""
+    default_config = {
+        "model": {
+            "path": "model/psychologistv2-8.0B-Q4_0.gguf",
+            "n_ctx": 8192,
+            "n_gpu_layers": -1,
+        },
+        "chat": {
+            "system_prompt": "You are Metis, a helpful AI assistant.",
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_tokens": 512,
+        },
+        "llm_service": {
+            "host": "localhost",
+            "port": 3000,
+        },
+    }
+
+    if not CONFIG_PATH.exists():
+        return default_config
+
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if isinstance(raw, dict):
+            return _deep_merge_dicts(default_config, raw)
+    except Exception as e:
+        print(f"Warning: Failed to load base config.yaml: {e}. Using defaults.")
+
+    return default_config
+
+
 def reset_config_cache() -> None:
     """Clear the cached configuration so future reads reload from disk."""
     global _config

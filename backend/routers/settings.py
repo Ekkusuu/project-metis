@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from backend.llama_engine import get_config, get_local_config, reset_config_cache, save_local_config
+from backend.llama_engine import get_base_config, get_config, get_local_config, reset_config_cache, save_local_config
 from backend.rag_engine import index_all_folders, reset_rag_state
 
 
@@ -178,7 +178,7 @@ def _current_settings_preset() -> Dict[str, Any]:
         "id": "current-settings",
         "title": "Default settings",
         "description": "The baseline configuration Metis uses when no saved preset is selected.",
-        "settings": _extract_settings(get_config()),
+        "settings": _extract_settings(get_base_config()),
         "readonly": True,
     }
 
