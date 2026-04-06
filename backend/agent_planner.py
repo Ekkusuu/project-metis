@@ -89,6 +89,55 @@ def _clean_task_content(content: str) -> str:
     return cleaned
 
 
+def _topic_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-zA-Z]{3,}", text.lower())
+        if token not in {
+            "what", "when", "where", "which", "with", "this", "that", "from", "have", "were",
+            "they", "them", "then", "than", "your", "just", "about", "would", "could", "should",
+            "there", "their", "into", "also", "only", "want", "need", "know", "tell", "does",
+            "who", "how", "why",
+        }
+    }
+
+
+def _is_related_to_latest(latest_message: str, older_message: str) -> bool:
+    latest_tokens = _topic_tokens(latest_message)
+    older_tokens = _topic_tokens(older_message)
+    if not latest_tokens or not older_tokens:
+        return False
+    return len(latest_tokens & older_tokens) > 0
+
+
+def _select_recent_conversation(messages: List[Dict[str, str]], max_messages: int) -> List[Dict[str, str]]:
+    latest_user = next((msg for msg in reversed(messages) if msg.get("role") == "user"), None)
+    if latest_user is None:
+        return []
+
+    latest_content = str(latest_user.get("content", ""))
+    relevant = [msg for msg in messages if msg.get("role") in {"user", "assistant"}]
+    trailing = relevant[-max_messages:]
+    selected: List[Dict[str, str]] = []
+    for msg in trailing:
+        if msg is latest_user:
+            selected.append(msg)
+            continue
+        if _is_related_to_latest(latest_content, str(msg.get("content", ""))):
+            selected.append(msg)
+
+    if latest_user not in selected:
+        selected.append(latest_user)
+    return selected
+
+
+def _select_recent_task_context(messages: List[Dict[str, str]], max_messages: int) -> List[Dict[str, str]]:
+    relevant = [msg for msg in messages if msg.get("role") in {"user", "assistant"}]
+    if not relevant:
+        return []
+    return relevant[-max_messages:]
+
+
 def _is_useful_task(content: str) -> bool:
     normalized = content.strip().lower()
     if len(normalized) < 12:
@@ -135,8 +184,8 @@ def _parse_line_plan(raw: str) -> List[Dict[str, Any]]:
             continue
         if cleaned.startswith("```"):
             continue
-        # Only treat explicit list items as fallback tasks, not arbitrary prose.
-        if not re.match(r"^\s*(?:[-*]|\d+[.)]|task\s*\d+|step\s*\d+)", line, re.IGNORECASE):
+        # Only treat explicit task/step items as fallback tasks, not generic markdown bullets.
+        if not re.match(r"^\s*(?:task\s*\d+|step\s*\d+|\d+[.)]\s*(?:analyze|context|compose|task|step))", line, re.IGNORECASE):
             continue
         cleaned = re.sub(r"^[-*\d.)\s]+", "", cleaned).strip()
         cleaned = re.sub(r"^(task|step)\s*\d+\s*[:.-]\s*", "", cleaned, flags=re.IGNORECASE).strip()
@@ -266,11 +315,15 @@ def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str
     return (
         "Create an internal execution plan for answering a chat request. "
         "This is a read-only chat assistant with no tools, so the tasks must break the current request into concrete internal subtasks for producing the reply, not broad planning slogans or user advice. "
+        "The latest request is the primary target. Older conversation context is secondary background only, and should be ignored if it is not directly relevant to answering the latest request. "
+        "If the user has changed topics, make tasks for the new topic instead of carrying over assumptions from earlier turns. "
         "Each task should focus on one real subproblem from this exact request, such as choosing between two plausible interpretations, deciding which prior fact changes the answer, identifying the single missing detail that blocks a confident answer, or choosing the structure of the reply. "
         "Every task must refer to the user's actual request, constraint, ambiguity, missing detail, or decision point. If a task could fit almost any conversation, it is too generic and should be rewritten more specifically. "
         "Use the smallest number of tasks that fully covers the real subproblems. Usually 3 or 4 tasks are enough. Only use 5 or 6 if the request genuinely has that many distinct decision points. "
         "Do not write generic tasks like clarifying the request, reviewing context, checking emotional cues, determining whether a follow-up question is needed, shaping tone, or generating a response unless they explicitly mention what about this request must be clarified, reviewed, or decided. "
         "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Do not include prefixes like 'content:' or extra commentary. "
+        "If the latest request is a simple factual question, keep the tasks factual. Do not introduce emotional-support, dating, therapy, or relationship tasks unless the latest request is actually about those topics. "
+        "For example, for 'who is riki?' good tasks are things like identifying which entity the retrieved evidence points to, checking whether the name is ambiguous, and deciding how to answer concisely. Bad tasks would mention emotional state, dating, encouragement, or practical life advice. "
         "Bad example: 'Determine whether the user is asking for personal advice or general information.' Better example: 'Decide whether the user wants a first-step plan for starting a habit or help choosing which habit to start with.' "
         "Bad example: 'Review context.' Better example: 'Check whether the user already mentioned a deadline, resource limit, or prior failed attempt that changes the starting advice.' "
         "Do NOT write tasks that tell the user what to do. Do NOT output answer content or therapy advice. "
@@ -290,10 +343,13 @@ def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str
 def _build_rescue_plan_prompt(conversation_excerpt: str, last_user_message: str, rag_enabled: bool, variation_token: int) -> str:
     return (
         f"Write between {MIN_TASKS} and {MAX_TASKS} short internal tasks for preparing the assistant's next reply. "
+        "The latest request is the primary target. Older conversation context is secondary background only, and should be ignored if it is not directly relevant to answering the latest request. "
+        "If the user has changed topics, make tasks for the new topic instead of carrying over assumptions from earlier turns. "
         "The tasks must be specific to the current request and should sound like private workflow subtasks. "
         "If a task could be reused unchanged for many different user prompts, it is too generic and should be rewritten. "
         "Use the smallest number of tasks that fully covers the real subproblems. Usually 3 or 4 tasks are enough. Only use 5 or 6 if the request genuinely has that many distinct decision points. "
         "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Do not include prefixes like 'content:' or any other field labels. "
+        "If the latest request is a simple factual question, keep the tasks factual. Do not introduce emotional-support, dating, therapy, or relationship tasks unless the latest request is actually about those topics. "
         "Prefer concrete subtasks such as resolving an ambiguity in the user's ask, choosing which earlier fact matters most, deciding what assumption must be avoided, deciding whether the reply should answer first or ask one targeted follow-up, or choosing between two response structures specific to this request. "
         "Bad example: 'Review context.' Better example: 'Check whether the user already shared a constraint, deadline, or previous attempt that changes the advice.' "
         "Bad example: 'Generate a response.' Better example: 'Decide whether the reply should open with one concrete first step or first frame the decision the user has to make.' "
@@ -344,10 +400,25 @@ def execute_planning_task_with_metrics(
     content = str(task.get("content", "")).strip()
     variation_token = random.randint(1000, 9999)
 
+    retrieved_context_blocks: List[str] = []
+    for msg in messages:
+        if msg.get("role") != "system":
+            continue
+        content_text = str(msg.get("content", ""))
+        marker = "Relevant information from your knowledge base:"
+        if marker not in content_text:
+            continue
+        extracted = content_text.split(marker, 1)[1]
+        extracted = extracted.split("Use this information to answer the user's question.", 1)[0].strip()
+        if extracted:
+            retrieved_context_blocks.append(extracted)
+
+    retrieved_context_text = "\n\n".join(retrieved_context_blocks).strip() or "- None"
+
+    recent_messages = _select_recent_task_context(messages, max_messages=4)
     conversation_excerpt = "\n".join(
         f"{msg.get('role', 'user')}: {msg.get('content', '')[:280]}"
-        for msg in messages[-8:]
-        if msg.get("role") in {"system", "user", "assistant"}
+        for msg in recent_messages
     )
     completed_tasks_text = "\n\n".join(
         f"Completed task: {item.get('task', '').strip()}\n"
@@ -358,18 +429,28 @@ def execute_planning_task_with_metrics(
 
     prompt = (
         "You are an internal planning worker helping craft the next assistant reply. "
+        "You must solve only the current task for the latest user message. "
+        "If older conversation context points to a different topic, ignore it. "
+        "The current task and latest user message always override older context. "
+        "If the conversation includes retrieved knowledge-base context, you must use that retrieved information when it is relevant to the task. "
+        "Treat retrieved context as real evidence for the task, not as optional background. "
         "Complete the current task and produce a full internal subresponse for that task. "
         "This subresponse is not shown directly to the user, but it will be provided to the final response generator as context. "
         "Be specific, concrete, and focused. Work only on the current task, using the whole conversation as context. "
+        "Treat the latest user message as the primary target of the task, and use the broader chat context only to support or disambiguate it. "
+        "Use previously completed tasks only to understand progress and avoid duplication. Do not restate their conclusions unless absolutely necessary. Add only the new analysis needed for the current task. "
+        "If the latest request is a simple factual question, keep the output factual and concise. Do not drift into emotional support, dating advice, therapy framing, or unrelated practical guidance. "
         "Do not write the final user-facing answer, but do write a substantial internal analysis or recommendation for this task. "
         "Keep the output concise: 1 to 2 short paragraphs, or up to 5 compact bullet points. Aim for roughly 80 to 140 words. "
         "End with a short conclusion the final responder can directly use. "
         "Do not mention tools.\n\n"
         f"Current phase: {phase}\n"
         f"Current task: {content}\n\n"
+        f"Latest user message (primary target): {last_user_message}\n\n"
+        f"Retrieved knowledge-base context for this task:\n{retrieved_context_text}\n\n"
         f"Previously completed tasks for this request:\n{completed_tasks_text}\n\n"
-        f"Conversation:\n{conversation_excerpt}\n\n"
-        f"Latest request: {last_user_message}\n\n"
+        f"Full context for this task, including any retrieved knowledge-base material:\n{conversation_excerpt}\n\n"
+        "Important: if the conversation contains an older unrelated topic, do not analyze or mention it.\n\n"
         f"Variation token: {variation_token}. Let this allow slight wording variance, but keep the output useful and stable.\n\n"
         "Return a full plain-text internal subresponse for this task."
     )
@@ -386,7 +467,7 @@ def execute_planning_task_with_metrics(
             ],
             temperature=0.35,
             top_p=0.9,
-            max_tokens=800,
+            max_tokens=1400,
         )
         duration_seconds = time.time() - started_at
         raw_token_count = count_tokens(raw)
@@ -461,10 +542,10 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
     fallback: List[Dict[str, Any]] = []
     variation_token = random.randint(1000, 9999)
 
+    recent_messages = _select_recent_conversation(messages, max_messages=3)
     conversation_excerpt = "\n".join(
         f"{msg.get('role', 'user')}: {msg.get('content', '')[:240]}"
-        for msg in messages[-6:]
-        if msg.get("role") in {"user", "assistant"}
+        for msg in recent_messages
     )
 
     primary_prompt = _build_primary_plan_prompt(conversation_excerpt, last_user_message, rag_enabled, variation_token)
