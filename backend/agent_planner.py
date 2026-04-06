@@ -268,6 +268,7 @@ def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str
         "This is a read-only chat assistant with no tools, so the tasks must break the current request into concrete internal subtasks for producing the reply, not broad planning slogans or user advice. "
         "Each task should focus on one real subproblem from this exact request, such as choosing between two plausible interpretations, deciding which prior fact changes the answer, identifying the single missing detail that blocks a confident answer, or choosing the structure of the reply. "
         "Every task must refer to the user's actual request, constraint, ambiguity, missing detail, or decision point. If a task could fit almost any conversation, it is too generic and should be rewritten more specifically. "
+        "Use the smallest number of tasks that fully covers the real subproblems. Usually 3 or 4 tasks are enough. Only use 5 or 6 if the request genuinely has that many distinct decision points. "
         "Do not write generic tasks like clarifying the request, reviewing context, checking emotional cues, determining whether a follow-up question is needed, shaping tone, or generating a response unless they explicitly mention what about this request must be clarified, reviewed, or decided. "
         "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Do not include prefixes like 'content:' or extra commentary. "
         "Bad example: 'Determine whether the user is asking for personal advice or general information.' Better example: 'Decide whether the user wants a first-step plan for starting a habit or help choosing which habit to start with.' "
@@ -288,9 +289,10 @@ def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str
 
 def _build_rescue_plan_prompt(conversation_excerpt: str, last_user_message: str, rag_enabled: bool, variation_token: int) -> str:
     return (
-        f"Write exactly 4 to {MAX_TASKS} short internal tasks for preparing the assistant's next reply. "
+        f"Write between {MIN_TASKS} and {MAX_TASKS} short internal tasks for preparing the assistant's next reply. "
         "The tasks must be specific to the current request and should sound like private workflow subtasks. "
         "If a task could be reused unchanged for many different user prompts, it is too generic and should be rewritten. "
+        "Use the smallest number of tasks that fully covers the real subproblems. Usually 3 or 4 tasks are enough. Only use 5 or 6 if the request genuinely has that many distinct decision points. "
         "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Do not include prefixes like 'content:' or any other field labels. "
         "Prefer concrete subtasks such as resolving an ambiguity in the user's ask, choosing which earlier fact matters most, deciding what assumption must be avoided, deciding whether the reply should answer first or ask one targeted follow-up, or choosing between two response structures specific to this request. "
         "Bad example: 'Review context.' Better example: 'Check whether the user already shared a constraint, deadline, or previous attempt that changes the advice.' "
@@ -315,6 +317,7 @@ def _build_repair_prompt(raw_output: str) -> str:
         "  - content: ...\n"
         "    phase: analyze\n"
         f"Use exactly {MIN_TASKS} to {MAX_TASKS} tasks and never output more than {MAX_TASKS}. Allowed phases are analyze, context, compose. "
+        "Merge redundant tasks and keep only the smallest set that covers the distinct subproblems. "
         "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Remove prefixes like 'content:' if they appear. "
         "Do not invent unrelated tasks; keep the original intent but normalize it.\n\n"
         f"Planner output to repair:\n{raw_output}"
@@ -324,17 +327,17 @@ def _build_repair_prompt(raw_output: str) -> str:
 def execute_planning_task(
     messages: List[Dict[str, str]],
     task: Dict[str, Any],
-    prior_notes: List[str],
+    completed_tasks: List[Dict[str, str]],
     last_user_message: str,
 ) -> str:
-    result = execute_planning_task_with_metrics(messages, task, prior_notes, last_user_message)
+    result = execute_planning_task_with_metrics(messages, task, completed_tasks, last_user_message)
     return str(result.get("note", ""))
 
 
 def execute_planning_task_with_metrics(
     messages: List[Dict[str, str]],
     task: Dict[str, Any],
-    prior_notes: List[str],
+    completed_tasks: List[Dict[str, str]],
     last_user_message: str,
 ) -> Dict[str, Any]:
     phase = str(task.get("phase", "analyze"))
@@ -346,7 +349,12 @@ def execute_planning_task_with_metrics(
         for msg in messages[-8:]
         if msg.get("role") in {"system", "user", "assistant"}
     )
-    notes_text = "\n".join(f"- {note}" for note in prior_notes[-4:]) or "- None yet"
+    completed_tasks_text = "\n\n".join(
+        f"Completed task: {item.get('task', '').strip()}\n"
+        f"Completed task output:\n{item.get('output', '').strip()}"
+        for item in completed_tasks[-4:]
+        if item.get('task') and item.get('output')
+    ) or "- None yet"
 
     prompt = (
         "You are an internal planning worker helping craft the next assistant reply. "
@@ -359,7 +367,7 @@ def execute_planning_task_with_metrics(
         "Do not mention tools.\n\n"
         f"Current phase: {phase}\n"
         f"Current task: {content}\n\n"
-        f"Completed task outputs so far:\n{notes_text}\n\n"
+        f"Previously completed tasks for this request:\n{completed_tasks_text}\n\n"
         f"Conversation:\n{conversation_excerpt}\n\n"
         f"Latest request: {last_user_message}\n\n"
         f"Variation token: {variation_token}. Let this allow slight wording variance, but keep the output useful and stable.\n\n"
@@ -378,7 +386,7 @@ def execute_planning_task_with_metrics(
             ],
             temperature=0.35,
             top_p=0.9,
-            max_tokens=500,
+            max_tokens=800,
         )
         duration_seconds = time.time() - started_at
         raw_token_count = count_tokens(raw)

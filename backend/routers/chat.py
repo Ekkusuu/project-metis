@@ -205,7 +205,10 @@ def _apply_rag_context(messages: List[Message], rag_cfg: Dict[str, Any]) -> List
                     "Relevant information from your knowledge base:\n\n"
                     f"{context_text}\n\n"
                     "Use this information to answer the user's question. Do not copy large blocks of the retrieval context verbatim. "
-                    "This also applies to hidden reasoning: rely on the retrieved context, but do not restate long raw source passages in your thinking."
+                    "This also applies to hidden reasoning: rely on the retrieved context, but do not restate long raw source passages in your thinking. "
+                    "When you use retrieved information, explicitly reference the source file that supported that point. "
+                    "Use a natural inline citation format such as '(Source: filename)' or 'According to filename'. "
+                    "If you rely on multiple retrieved ideas, cite each one near the relevant sentence instead of giving one vague citation at the end."
                 )
                 messages[i] = Message(role="system", content=enhanced_system)
                 break
@@ -330,17 +333,16 @@ def chat_stream(req: ChatRequest):
         global _current_context
         local_messages = list(messages)
         latest_user_message = next((m.content for m in reversed(local_messages) if m.role == "user"), req.prompt or "")
+        local_messages = _apply_rag_context(local_messages, rag_cfg)
+        yield json.dumps({"type": "rag_retrieval", "data": _last_rag_results}) + "\n"
         planner_messages = [{"role": m.role, "content": m.content} for m in local_messages]
         plan_tasks = build_chat_plan(planner_messages, latest_user_message, bool(rag_cfg.get("enabled", False)))
         plan_tasks = _set_task_status(plan_tasks, 0)
         yield json.dumps({"type": "task_snapshot", "tasks": plan_tasks}) + "\n"
 
-        local_messages = _apply_rag_context(local_messages, rag_cfg)
-
         local_messages_dict = [m.model_dump() for m in local_messages]
         local_messages_dict = trim_messages_to_context(local_messages_dict)
 
-        planning_notes: List[str] = []
         completed_task_outputs: List[Dict[str, str]] = []
         planning_token_total = 0
         planning_duration_total = 0.0
@@ -348,12 +350,11 @@ def chat_stream(req: ChatRequest):
         for idx, task in enumerate(plan_tasks):
             active_tasks = _set_task_status(plan_tasks, idx)
             yield json.dumps({"type": "task_snapshot", "tasks": active_tasks}) + "\n"
-            task_result = execute_planning_task_with_metrics(local_messages_dict, task, planning_notes, latest_user_message)
+            task_result = execute_planning_task_with_metrics(local_messages_dict, task, completed_task_outputs, latest_user_message)
             note = str(task_result.get("note", ""))
             planning_token_total += int(task_result.get("raw_token_count", 0) or 0)
             planning_duration_total += float(task_result.get("duration_seconds", 0.0) or 0.0)
             if note:
-                planning_notes.append(note)
                 completed_task_outputs.append({
                     "task": str(task.get("content", "")),
                     "output": note,
