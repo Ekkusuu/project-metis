@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict, List
 import yaml
 
-from backend.llama_engine import chat_completion, strip_to_final_text
+from backend.llama_engine import chat_completion, get_config, strip_to_final_text
 from backend.token_utils import count_tokens
 
 
@@ -399,6 +399,7 @@ def execute_planning_task_with_metrics(
     phase = str(task.get("phase", "analyze"))
     content = str(task.get("content", "")).strip()
     variation_token = random.randint(1000, 9999)
+    chat_system_prompt = get_config().get("chat", {}).get("system_prompt", "You are Metis, a helpful AI assistant.")
 
     retrieved_context_blocks: List[str] = []
     for msg in messages:
@@ -428,6 +429,7 @@ def execute_planning_task_with_metrics(
     ) or "- None yet"
 
     prompt = (
+        f"Core assistant identity and behavior:\n{chat_system_prompt}\n\n"
         "You are an internal planning worker helping craft the next assistant reply. "
         "You must solve only the current task for the latest user message. "
         "If older conversation context points to a different topic, ignore it. "
