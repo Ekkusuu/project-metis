@@ -90,7 +90,9 @@ function PlanningTrace({ notes, messageId, isActive }: { notes: NonNullable<Mess
           {notes.map((entry, index) => (
             <div key={`${messageId}-note-${index}`} className="planning-trace-item">
               {entry.taskContent && <div className="planning-trace-task">{entry.taskContent}</div>}
-              <div className="planning-trace-note">{entry.note}</div>
+              <div className="planning-trace-note">
+                <MessageText rawText={entry.note} messageId={`${messageId}-note-${index}`} />
+              </div>
             </div>
           ))}
         </div>
@@ -193,12 +195,13 @@ function ChatInterface() {
   const [editingText, setEditingText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const activeStreamAbortRef = useRef<AbortController | null>(null);
+  const lastEscapeAtRef = useRef<number>(0);
 
   const estimatedContextTokens = Math.min(
     CONTEXT_WINDOW_TOKENS,
     messages.reduce((total, message) => {
-      const planningText = (message.planningNotes || []).map((note) => note.note).join(' ');
-      const chars = `${message.text} ${planningText}`.trim().length;
+      const chars = message.text.trim().length;
       return total + Math.ceil(chars / 4) + 12;
     }, 0)
   );
@@ -403,10 +406,14 @@ function ChatInterface() {
   const streamChatResponse = async (history: Array<{ role: string; content: string }>) => {
     setTasks([]);
 
+    const abortController = new AbortController();
+    activeStreamAbortRef.current = abortController;
+
     const resp = await fetch(`${API_URL}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: history }),
+      signal: abortController.signal,
     });
 
     if (!resp.ok) {
@@ -531,10 +538,36 @@ function ChatInterface() {
       }
     }
 
+    activeStreamAbortRef.current = null;
     setIsTyping(false);
     setShowTypingIndicator(false);
     window.dispatchEvent(new CustomEvent('messageComplete'));
   };
+
+  const stopCurrentProcess = () => {
+    if (!activeStreamAbortRef.current) return;
+    activeStreamAbortRef.current.abort();
+    activeStreamAbortRef.current = null;
+    setIsTyping(false);
+    setShowTypingIndicator(false);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !isTyping) return;
+      const now = Date.now();
+      if (now - lastEscapeAtRef.current < 600) {
+        event.preventDefault();
+        stopCurrentProcess();
+        lastEscapeAtRef.current = 0;
+        return;
+      }
+      lastEscapeAtRef.current = now;
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isTyping]);
 
   const saveChatHistory = async () => {
     if (!activeChatId) return;
@@ -628,8 +661,12 @@ function ChatInterface() {
 
       await streamChatResponse(history);
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return;
+      }
       setIsTyping(false);
       setShowTypingIndicator(false);
+      activeStreamAbortRef.current = null;
       const errMsg: Message = {
         id: (Date.now() + 2).toString(),
         text: `Error contacting AI backend: ${err?.message || String(err)}`,
@@ -831,8 +868,8 @@ function ChatInterface() {
           className="message-input"
           disabled={isTyping}
         />
-        <button onClick={handleSend} className="send-button" disabled={isTyping}>
-          {isTyping ? 'Wait...' : 'Send'}
+        <button onClick={isTyping ? stopCurrentProcess : handleSend} className="send-button">
+          {isTyping ? 'Stop' : 'Send'}
         </button>
       </div>
       </div>
