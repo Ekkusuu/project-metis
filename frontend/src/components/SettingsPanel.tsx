@@ -150,8 +150,6 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   const dispatchSettingsAppliedEvents = () => {
     window.dispatchEvent(new CustomEvent('settingsUpdated'));
-    window.dispatchEvent(new CustomEvent('messageComplete'));
-    window.dispatchEvent(new CustomEvent('ragRetrievalComplete'));
   };
 
   const handlePresetRowKeyDown = (event: KeyboardEvent<HTMLDivElement>, onActivate: () => void) => {
