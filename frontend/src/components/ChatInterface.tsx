@@ -195,8 +195,10 @@ function ChatInterface() {
   const [editingText, setEditingText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const activeStreamAbortRef = useRef<AbortController | null>(null);
   const lastEscapeAtRef = useRef<number>(0);
+  const shouldStickToBottomRef = useRef(true);
 
   const estimatedContextTokens = Math.min(
     CONTEXT_WINDOW_TOKENS,
@@ -421,8 +423,6 @@ function ChatInterface() {
       throw new Error(`Backend error ${resp.status}: ${detail}`);
     }
 
-    window.dispatchEvent(new CustomEvent('ragRetrievalComplete'));
-
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -459,6 +459,16 @@ function ChatInterface() {
           const chunk = JSON.parse(line);
           if (chunk.type === 'task_snapshot' && Array.isArray(chunk.tasks)) {
             setTasks(chunk.tasks);
+            continue;
+          }
+
+          if (chunk.type === 'rag_retrieval' && chunk.data) {
+            const nextRagData = chunk.data && Array.isArray(chunk.data.results)
+              ? chunk.data
+              : { results: [] };
+            setRagData(nextRagData);
+            window.dispatchEvent(new CustomEvent('chatRagDataLoaded', { detail: nextRagData }));
+            window.dispatchEvent(new CustomEvent('ragRetrievalComplete'));
             continue;
           }
 
@@ -602,6 +612,13 @@ function ChatInterface() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const updateStickToBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < 80;
+  };
+
   const autoResizeTextarea = () => {
     const textarea = textareaRef.current;
     if (textarea) {
@@ -611,8 +628,18 @@ function ChatInterface() {
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (shouldStickToBottomRef.current) {
+      scrollToBottom();
+    }
   }, [messages]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    updateStickToBottom();
+    container.addEventListener('scroll', updateStickToBottom);
+    return () => container.removeEventListener('scroll', updateStickToBottom);
+  }, []);
 
   useEffect(() => {
     autoResizeTextarea();
@@ -767,7 +794,7 @@ function ChatInterface() {
         </div>
       </div>
 
-      <div className="messages-container">
+      <div className="messages-container" ref={messagesContainerRef}>
         {isLoading ? (
           <div className="loading-history">
             <div className="typing-indicator">
