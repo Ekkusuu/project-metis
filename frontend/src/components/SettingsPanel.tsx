@@ -61,6 +61,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const isCreatingPreset = presetEditorOpen && editingPresetId === null;
   const isEditingPreset = editingPresetId !== null;
   const isPresetMetadataEditable = isCreatingPreset || isEditingPreset;
+  const isEditorLocked = isDefaultSelected && !isCreatingPreset;
   const selectedPreset = activePresetId ? presets.find((item) => item.id === activePresetId) ?? null : currentPreset;
 
   const setDraftSettings = (nextSettings: SettingsState) => {
@@ -164,6 +165,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
     setEditingPresetId(null);
     setDraftTitle('');
     setDraftDescription('');
+    setDraftSettings(buildPayload());
     setPresetEditorOpen(true);
   };
 
@@ -245,6 +247,12 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   const handleDeletePreset = async (presetId: string) => {
+    const preset = presets.find((item) => item.id === presetId);
+    const presetName = preset?.title || 'this preset';
+    if (!window.confirm(`Delete ${presetName}?`)) {
+      return;
+    }
+
     setIsSaving(true);
     setMessage({ type: 'info', text: 'Deleting preset...' });
     try {
@@ -286,7 +294,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
             <div className="settings-presets-list">
               {presetItems.length === 0 && <div className="settings-presets-empty">No presets yet. Save the current configuration to create one.</div>}
               {presetItems.map((preset) => {
-                const isActive = preset.readonly ? activePresetId === null : activePresetId === preset.id;
+                const isActive = preset.readonly ? (activePresetId === null && !isCreatingPreset) : activePresetId === preset.id;
                 if (preset.readonly) {
                   return (
                     <div
@@ -362,50 +370,50 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-          <div className={`settings-section ${isDefaultSelected ? 'settings-section-disabled' : ''}`}>
+          <div className={`settings-section ${isEditorLocked ? 'settings-section-disabled' : ''}`}>
             <div className="settings-section-title-block">
               <h3>Chat</h3>
               <p className="settings-section-copy">Adjust how Metis responds before applying the changes live.</p>
             </div>
-            <label className="settings-field settings-field-full"><span>System prompt</span><textarea value={settings.chat.system_prompt} onChange={(e) => updateSection('chat', { system_prompt: e.target.value })} rows={8} disabled={isDefaultSelected} /></label>
+            <label className="settings-field settings-field-full"><span>System prompt</span><textarea value={settings.chat.system_prompt} onChange={(e) => updateSection('chat', { system_prompt: e.target.value })} rows={8} disabled={isEditorLocked} /></label>
             <div className="settings-grid settings-grid-three">
-              <label className="settings-field"><span>Temperature</span><input type="number" min="0" max="2" step="0.05" value={settings.chat.temperature} onChange={(e) => updateSection('chat', { temperature: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
-              <label className="settings-field"><span>Top p</span><input type="number" min="0" max="1" step="0.01" value={settings.chat.top_p} onChange={(e) => updateSection('chat', { top_p: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
-              <label className="settings-field"><span>Max tokens</span><input type="number" min="64" max="8192" step="1" value={settings.chat.max_tokens} onChange={(e) => updateSection('chat', { max_tokens: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
+              <label className="settings-field"><span>Temperature</span><input type="number" min="0" max="2" step="0.05" value={settings.chat.temperature} onChange={(e) => updateSection('chat', { temperature: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span>Top p</span><input type="number" min="0" max="1" step="0.01" value={settings.chat.top_p} onChange={(e) => updateSection('chat', { top_p: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span>Max tokens</span><input type="number" min="64" max="8192" step="1" value={settings.chat.max_tokens} onChange={(e) => updateSection('chat', { max_tokens: Number(e.target.value) })} disabled={isEditorLocked} /></label>
             </div>
           </div>
 
-          <div className={`settings-section ${isDefaultSelected ? 'settings-section-disabled' : ''}`}>
+          <div className={`settings-section ${isEditorLocked ? 'settings-section-disabled' : ''}`}>
             <div className="settings-section-title-block">
               <h3>RAG</h3>
               <p className="settings-section-copy">Control retrieval, indexing paths, and reranking behavior.</p>
             </div>
-            <label className="settings-toggle"><input type="checkbox" checked={settings.rag.enabled} onChange={(e) => updateSection('rag', { enabled: e.target.checked })} disabled={isDefaultSelected} /><span>Enable retrieval</span></label>
+            <label className="settings-toggle"><input type="checkbox" checked={settings.rag.enabled} onChange={(e) => updateSection('rag', { enabled: e.target.checked })} disabled={isEditorLocked} /><span>Enable retrieval</span></label>
             <label className="settings-field settings-field-full">
               <span>Folders to index</span>
-              <textarea value={folderText} onChange={(e) => setFolderText(e.target.value)} rows={4} disabled={isDefaultSelected} />
+              <textarea value={folderText} onChange={(e) => setFolderText(e.target.value)} rows={4} disabled={isEditorLocked} />
               <small>One folder per line. Relative paths work best in the app and release bundle.</small>
             </label>
             <div className="settings-grid settings-grid-three">
-              <label className="settings-field"><span>Top k</span><input type="number" min="1" max="24" value={settings.rag.top_k} onChange={(e) => updateSection('rag', { top_k: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
-              <label className="settings-field"><span>Max distance</span><input type="number" min="-1" max="10" step="0.05" value={settings.rag.max_distance} onChange={(e) => updateSection('rag', { max_distance: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
-              <label className="settings-field"><span>Query count</span><input type="number" min="1" max="8" value={settings.rag.query_generation_count} onChange={(e) => updateSection('rag', { query_generation_count: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
+              <label className="settings-field"><span>Top k</span><input type="number" min="1" max="24" value={settings.rag.top_k} onChange={(e) => updateSection('rag', { top_k: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span>Max distance</span><input type="number" min="-1" max="10" step="0.05" value={settings.rag.max_distance} onChange={(e) => updateSection('rag', { max_distance: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span>Query count</span><input type="number" min="1" max="8" value={settings.rag.query_generation_count} onChange={(e) => updateSection('rag', { query_generation_count: Number(e.target.value) })} disabled={isEditorLocked} /></label>
             </div>
-            <label className="settings-toggle"><input type="checkbox" checked={settings.rag.use_reranker} onChange={(e) => updateSection('rag', { use_reranker: e.target.checked })} disabled={isDefaultSelected} /><span>Use reranker</span></label>
+            <label className="settings-toggle"><input type="checkbox" checked={settings.rag.use_reranker} onChange={(e) => updateSection('rag', { use_reranker: e.target.checked })} disabled={isEditorLocked} /><span>Use reranker</span></label>
             <div className="settings-grid settings-grid-two">
-              <label className="settings-field"><span>Reranker top k</span><input type="number" min="1" max="24" value={settings.rag.reranker_top_k} onChange={(e) => updateSection('rag', { reranker_top_k: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
-              <label className="settings-field"><span>Min rerank score</span><input type="number" min="-1" max="10" step="0.05" value={settings.rag.reranker_min_score} onChange={(e) => updateSection('rag', { reranker_min_score: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
+              <label className="settings-field"><span>Reranker top k</span><input type="number" min="1" max="24" value={settings.rag.reranker_top_k} onChange={(e) => updateSection('rag', { reranker_top_k: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span>Min rerank score</span><input type="number" min="-1" max="10" step="0.05" value={settings.rag.reranker_min_score} onChange={(e) => updateSection('rag', { reranker_min_score: Number(e.target.value) })} disabled={isEditorLocked} /></label>
             </div>
           </div>
 
-          <div className={`settings-section ${isDefaultSelected ? 'settings-section-disabled' : ''}`}>
+          <div className={`settings-section ${isEditorLocked ? 'settings-section-disabled' : ''}`}>
             <div className="settings-section-title-block">
               <h3>Memory</h3>
               <p className="settings-section-copy">Tune temporary and long-term memory token budgets.</p>
             </div>
             <div className="settings-grid settings-grid-two">
-              <label className="settings-field"><span>Temp memory limit</span><input type="number" min="100" max="50000" value={settings.memory.temp_memory_token_limit} onChange={(e) => updateSection('memory', { temp_memory_token_limit: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
-              <label className="settings-field"><span>Long-term limit</span><input type="number" min="500" max="100000" value={settings.memory.long_term_memory_token_limit} onChange={(e) => updateSection('memory', { long_term_memory_token_limit: Number(e.target.value) })} disabled={isDefaultSelected} /></label>
+              <label className="settings-field"><span>Temp memory limit</span><input type="number" min="100" max="50000" value={settings.memory.temp_memory_token_limit} onChange={(e) => updateSection('memory', { temp_memory_token_limit: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span>Long-term limit</span><input type="number" min="500" max="100000" value={settings.memory.long_term_memory_token_limit} onChange={(e) => updateSection('memory', { long_term_memory_token_limit: Number(e.target.value) })} disabled={isEditorLocked} /></label>
             </div>
           </div>
 
