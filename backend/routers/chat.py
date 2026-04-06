@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.llama_engine import chat_completion, chat_completion_stream, get_config
-from backend.agent_planner import build_chat_plan, execute_planning_task, inject_planning_notes
+from backend.agent_planner import build_chat_plan, execute_planning_task_with_metrics, inject_planning_notes
 from backend.rag_engine import (
     retrieve_context,
     format_context_for_prompt,
@@ -16,6 +16,7 @@ from backend.rag_engine import (
     generate_rag_queries,
 )
 from backend.context_manager import trim_messages_to_context
+from backend.token_utils import count_tokens
 
 router = APIRouter(prefix="", tags=["chat"])
 
@@ -198,7 +199,14 @@ def _apply_rag_context(messages: List[Message], rag_cfg: Dict[str, Any]) -> List
         context_text = format_context_for_prompt(relevant_contexts)
         for i, msg in enumerate(messages):
             if msg.role == "system":
-                enhanced_system = f"{msg.content}\n\n---\nRelevant information from your knowledge base:\n\n{context_text}\n\nUse this information to answer the user's question."
+                enhanced_system = (
+                    f"{msg.content}\n\n"
+                    "---\n"
+                    "Relevant information from your knowledge base:\n\n"
+                    f"{context_text}\n\n"
+                    "Use this information to answer the user's question. Do not copy large blocks of the retrieval context verbatim. "
+                    "This also applies to hidden reasoning: rely on the retrieved context, but do not restate long raw source passages in your thinking."
+                )
                 messages[i] = Message(role="system", content=enhanced_system)
                 break
     elif not contexts:
@@ -333,25 +341,36 @@ def chat_stream(req: ChatRequest):
         local_messages_dict = trim_messages_to_context(local_messages_dict)
 
         planning_notes: List[str] = []
+        completed_task_outputs: List[Dict[str, str]] = []
+        planning_token_total = 0
+        planning_duration_total = 0.0
         last_task_index = len(plan_tasks) - 1
         for idx, task in enumerate(plan_tasks):
             active_tasks = _set_task_status(plan_tasks, idx)
             yield json.dumps({"type": "task_snapshot", "tasks": active_tasks}) + "\n"
-            note = execute_planning_task(local_messages_dict, task, planning_notes, latest_user_message)
+            task_result = execute_planning_task_with_metrics(local_messages_dict, task, planning_notes, latest_user_message)
+            note = str(task_result.get("note", ""))
+            planning_token_total += int(task_result.get("raw_token_count", 0) or 0)
+            planning_duration_total += float(task_result.get("duration_seconds", 0.0) or 0.0)
             if note:
                 planning_notes.append(note)
+                completed_task_outputs.append({
+                    "task": str(task.get("content", "")),
+                    "output": note,
+                })
                 yield json.dumps({
                     "type": "task_note",
                     "task_id": task.get("id"),
                     "task_content": task.get("content"),
-                    "note": note,
+                    "note": task_result.get("display_note", note),
                 }) + "\n"
             if idx < last_task_index:
                 completed_tasks = _set_task_status(plan_tasks, idx + 1)
                 yield json.dumps({"type": "task_snapshot", "tasks": completed_tasks}) + "\n"
 
-        local_messages_dict = inject_planning_notes(local_messages_dict, planning_notes)
-        local_messages_dict = trim_messages_to_context(local_messages_dict)
+        final_generation_messages = inject_planning_notes(local_messages_dict, completed_task_outputs)
+        final_generation_messages = trim_messages_to_context(final_generation_messages)
+        persisted_context_messages = trim_messages_to_context([dict(msg) for msg in local_messages_dict])
 
         start_time = time.time()
         token_count = 0
@@ -367,7 +386,7 @@ def chat_stream(req: ChatRequest):
         ]
 
         for token in chat_completion_stream(
-            local_messages_dict,
+            final_generation_messages,
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
@@ -379,7 +398,10 @@ def chat_stream(req: ChatRequest):
         
         # Calculate tokens per second
         elapsed = time.time() - start_time
-        tokens_per_second = token_count / elapsed if elapsed > 0 else 0
+        final_response_tokens = count_tokens(assistant_response)
+        total_generated_tokens = planning_token_total + final_response_tokens
+        total_generation_seconds = planning_duration_total + elapsed
+        tokens_per_second = total_generated_tokens / total_generation_seconds if total_generation_seconds > 0 else 0
         
         # Update context with assistant response
         _current_context.append({
@@ -396,7 +418,7 @@ def chat_stream(req: ChatRequest):
             "tasks": _set_task_status(plan_tasks, None),
             "trimmed_messages": [
                 {"role": msg["role"], "content": msg["content"]}
-                for msg in local_messages_dict
+                for msg in persisted_context_messages
             ]
         }
         yield json.dumps(final_chunk) + "\n"
