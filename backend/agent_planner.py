@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import random
 import re
+import time
 from typing import Any, Dict, List
 import yaml
 
-from backend.llama_engine import chat_completion, strip_thinking_tags
+from backend.llama_engine import chat_completion, strip_to_final_text
+from backend.token_utils import count_tokens
 
 
 PHASE_ORDER = ["analyze", "context", "compose"]
@@ -52,6 +54,9 @@ def _extract_yaml_candidate(raw: str) -> str:
     fenced_match = re.search(r"```(?:yaml|yml)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
     if fenced_match:
         return fenced_match.group(1).strip()
+    yaml_match = re.search(r"(?:^|\n)(tasks\s*:.*)$", raw, re.DOTALL | re.IGNORECASE)
+    if yaml_match:
+        return yaml_match.group(1).strip()
     return raw
 
 
@@ -76,6 +81,12 @@ def _normalize_phase(value: str | None) -> str | None:
         "compose": "compose",
     }
     return aliases.get(value)
+
+
+def _clean_task_content(content: str) -> str:
+    cleaned = content.strip()
+    cleaned = re.sub(r"^content\s*:\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned
 
 
 def _is_useful_task(content: str) -> bool:
@@ -141,7 +152,7 @@ def _parse_line_plan(raw: str) -> List[Dict[str, Any]]:
 
 def _looks_like_fallback(tasks: List[Dict[str, Any]]) -> bool:
     if not tasks:
-        return False
+        return True
     normalized = [str(task.get("content", "")).strip().lower() for task in tasks]
     return all(any(signature in item for signature in FALLBACK_SIGNATURES) for item in normalized)
 
@@ -157,9 +168,12 @@ def _coerce_tasks(parsed: List[Any], fallback: List[Dict[str, Any]]) -> List[Dic
             continue
         content = item.get("content")
         phase = _normalize_phase(item.get("phase"))
-        if not isinstance(content, str) or not content.strip() or not phase or not _is_useful_task(content):
+        if not isinstance(content, str) or not content.strip() or not phase:
             continue
-        tasks.append({"id": f"task-{idx}", "content": content.strip()[:120], "phase": phase, "status": "pending"})
+        cleaned_content = _clean_task_content(content)
+        if not cleaned_content or not _is_useful_task(cleaned_content):
+            continue
+        tasks.append({"id": f"task-{idx}", "content": cleaned_content, "phase": phase, "status": "pending"})
 
     if len(tasks) < MIN_TASKS:
         return fallback
@@ -175,12 +189,12 @@ def _coerce_plain_tasks(lines: List[str], fallback: List[Dict[str, Any]]) -> Lis
     phases = ["analyze", "context", "compose", "compose", "compose", "compose"]
     tasks: List[Dict[str, Any]] = []
     for idx, content in enumerate(lines[:MAX_TASKS], start=1):
-        normalized_content = content.strip()
+        normalized_content = _clean_task_content(content)
         if not _is_useful_task(normalized_content):
             continue
         tasks.append({
             "id": f"task-{idx}",
-            "content": normalized_content[:120],
+            "content": normalized_content,
             "phase": phases[idx - 1],
             "status": "pending",
         })
@@ -255,6 +269,7 @@ def _build_primary_plan_prompt(conversation_excerpt: str, last_user_message: str
         "Each task should focus on one real subproblem from this exact request, such as choosing between two plausible interpretations, deciding which prior fact changes the answer, identifying the single missing detail that blocks a confident answer, or choosing the structure of the reply. "
         "Every task must refer to the user's actual request, constraint, ambiguity, missing detail, or decision point. If a task could fit almost any conversation, it is too generic and should be rewritten more specifically. "
         "Do not write generic tasks like clarifying the request, reviewing context, checking emotional cues, determining whether a follow-up question is needed, shaping tone, or generating a response unless they explicitly mention what about this request must be clarified, reviewed, or decided. "
+        "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Do not include prefixes like 'content:' or extra commentary. "
         "Bad example: 'Determine whether the user is asking for personal advice or general information.' Better example: 'Decide whether the user wants a first-step plan for starting a habit or help choosing which habit to start with.' "
         "Bad example: 'Review context.' Better example: 'Check whether the user already mentioned a deadline, resource limit, or prior failed attempt that changes the starting advice.' "
         "Do NOT write tasks that tell the user what to do. Do NOT output answer content or therapy advice. "
@@ -276,6 +291,7 @@ def _build_rescue_plan_prompt(conversation_excerpt: str, last_user_message: str,
         f"Write exactly 4 to {MAX_TASKS} short internal tasks for preparing the assistant's next reply. "
         "The tasks must be specific to the current request and should sound like private workflow subtasks. "
         "If a task could be reused unchanged for many different user prompts, it is too generic and should be rewritten. "
+        "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Do not include prefixes like 'content:' or any other field labels. "
         "Prefer concrete subtasks such as resolving an ambiguity in the user's ask, choosing which earlier fact matters most, deciding what assumption must be avoided, deciding whether the reply should answer first or ask one targeted follow-up, or choosing between two response structures specific to this request. "
         "Bad example: 'Review context.' Better example: 'Check whether the user already shared a constraint, deadline, or previous attempt that changes the advice.' "
         "Bad example: 'Generate a response.' Better example: 'Decide whether the reply should open with one concrete first step or first frame the decision the user has to make.' "
@@ -299,6 +315,7 @@ def _build_repair_prompt(raw_output: str) -> str:
         "  - content: ...\n"
         "    phase: analyze\n"
         f"Use exactly {MIN_TASKS} to {MAX_TASKS} tasks and never output more than {MAX_TASKS}. Allowed phases are analyze, context, compose. "
+        "Each task must be a short task title, not an explanation. Aim for roughly 6 to 12 words. Remove prefixes like 'content:' if they appear. "
         "Do not invent unrelated tasks; keep the original intent but normalize it.\n\n"
         f"Planner output to repair:\n{raw_output}"
     )
@@ -310,6 +327,16 @@ def execute_planning_task(
     prior_notes: List[str],
     last_user_message: str,
 ) -> str:
+    result = execute_planning_task_with_metrics(messages, task, prior_notes, last_user_message)
+    return str(result.get("note", ""))
+
+
+def execute_planning_task_with_metrics(
+    messages: List[Dict[str, str]],
+    task: Dict[str, Any],
+    prior_notes: List[str],
+    last_user_message: str,
+) -> Dict[str, Any]:
     phase = str(task.get("phase", "analyze"))
     content = str(task.get("content", "")).strip()
     variation_token = random.randint(1000, 9999)
@@ -323,20 +350,24 @@ def execute_planning_task(
 
     prompt = (
         "You are an internal planning worker helping craft the next assistant reply. "
-        "Complete the current task and return 1-2 short private working notes. "
-        "The notes should influence the final response, but they are not shown to the user. "
-        "Focus on things like what the user is really asking, emotional tone, missing context, whether a follow-up question would help, what prior context matters, and what response style fits best. "
-        "Do not write the final answer. Do not repeat the task text. Do not mention tools.\n\n"
+        "Complete the current task and produce a full internal subresponse for that task. "
+        "This subresponse is not shown directly to the user, but it will be provided to the final response generator as context. "
+        "Be specific, concrete, and focused. Work only on the current task, using the whole conversation as context. "
+        "Do not write the final user-facing answer, but do write a substantial internal analysis or recommendation for this task. "
+        "Keep the output concise: 1 to 2 short paragraphs, or up to 5 compact bullet points. Aim for roughly 80 to 140 words. "
+        "End with a short conclusion the final responder can directly use. "
+        "Do not mention tools.\n\n"
         f"Current phase: {phase}\n"
         f"Current task: {content}\n\n"
-        f"Prior working notes:\n{notes_text}\n\n"
+        f"Completed task outputs so far:\n{notes_text}\n\n"
         f"Conversation:\n{conversation_excerpt}\n\n"
         f"Latest request: {last_user_message}\n\n"
-        f"Variation token: {variation_token}. Let this allow slight wording variance, but keep the note useful and stable.\n\n"
-        "Return only plain text bullet points."
+        f"Variation token: {variation_token}. Let this allow slight wording variance, but keep the output useful and stable.\n\n"
+        "Return a full plain-text internal subresponse for this task."
     )
 
     try:
+        started_at = time.time()
         raw = chat_completion(
             [
                 {
@@ -347,41 +378,58 @@ def execute_planning_task(
             ],
             temperature=0.35,
             top_p=0.9,
-            max_tokens=140,
+            max_tokens=500,
         )
-        raw = strip_thinking_tags(raw)
-
-        lines = []
-        for line in raw.splitlines():
-            cleaned = re.sub(r"^[-*\d.)\s]+", "", line).strip()
-            if cleaned:
-                lines.append(cleaned[:180])
-        if lines:
-            return " | ".join(lines[:2])
+        duration_seconds = time.time() - started_at
+        raw_token_count = count_tokens(raw)
+        display_note = raw.strip()
+        final_text = strip_to_final_text(raw)
+        final_text = final_text.strip()
+        if final_text:
+            return {
+                "note": final_text,
+                "display_note": display_note,
+                "raw_token_count": raw_token_count,
+                "duration_seconds": duration_seconds,
+            }
     except Exception:
         pass
 
     if phase == "analyze":
-        return f"The reply should first pin down what the user really wants from {last_user_message[:80]}."
-    if phase == "context":
-        return "The reply should use the most relevant recent context and check whether any important detail is still missing."
-    return "The reply should balance empathy with directness and decide whether advice or a follow-up question should come first."
+        note = f"The reply should first pin down what the user really wants from {last_user_message[:80]}."
+    elif phase == "context":
+        note = "The reply should use the most relevant recent context and check whether any important detail is still missing."
+    else:
+        note = "The reply should balance empathy with directness and decide whether advice or a follow-up question should come first."
+
+    return {
+        "note": note,
+        "display_note": note,
+        "raw_token_count": 0,
+        "duration_seconds": 0.0,
+    }
 
 
-def inject_planning_notes(messages: List[Dict[str, str]], notes: List[str]) -> List[Dict[str, str]]:
-    if not notes:
+def inject_planning_notes(messages: List[Dict[str, str]], completed_tasks: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    if not completed_tasks:
         return messages
 
     enhanced_messages = [dict(message) for message in messages]
-    notes_text = "\n".join(f"- {note}" for note in notes)
+    notes_text = "\n\n".join(
+        f"Task: {item.get('task', '').strip()}\n"
+        f"Task output:\n{item.get('output', '').strip()}"
+        for item in completed_tasks
+        if item.get('task') and item.get('output')
+    )
     for message in enhanced_messages:
         if message.get("role") == "system":
             message["content"] = (
                 f"{message.get('content', '')}\n\n"
                 "---\n"
-                "Internal working notes for this reply:\n"
+                "Completed internal task outputs for this reply:\n"
                 f"{notes_text}\n\n"
-                "Use these notes to shape the answer, but never mention the planning process or the notes themselves."
+                "Use these completed task outputs to shape the final answer, but never mention the planning process or the tasks themselves. "
+                "Do not copy large blocks of the internal task output verbatim."
             )
             break
     return enhanced_messages
@@ -415,7 +463,7 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
     rescue_prompt = _build_rescue_plan_prompt(conversation_excerpt, last_user_message, rag_enabled, variation_token)
 
     def _attempt_plan(prompt: str, temperature: float, top_p: float) -> tuple[List[Dict[str, Any]], str]:
-        raw = chat_completion(
+        raw_output = chat_completion(
             [
                 {
                     "role": "system",
@@ -425,14 +473,16 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
             ],
             temperature=temperature,
             top_p=top_p,
-            max_tokens=180,
+            max_tokens=1200,
         )
-        raw = strip_thinking_tags(raw)
-        print("\n[planner] raw plan output:\n" + raw + "\n")
-        return _parse_plan_response(raw, fallback), raw
+        stripped_output = strip_to_final_text(raw_output)
+        print("\n[planner] raw model output:\n" + str(raw_output) + "\n")
+        print("[planner] stripped plan output:\n" + stripped_output + "\n")
+        parse_source = stripped_output or raw_output
+        return _parse_plan_response(parse_source, fallback), raw_output
 
     def _repair_plan(raw: str) -> List[Dict[str, Any]]:
-        repaired = chat_completion(
+        repaired_output = chat_completion(
             [
                 {
                     "role": "system",
@@ -442,11 +492,12 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
             ],
             temperature=0.0,
             top_p=0.4,
-            max_tokens=220,
+            max_tokens=1200,
         )
-        repaired = strip_thinking_tags(repaired)
-        print("\n[planner] repaired plan output:\n" + repaired + "\n")
-        return _parse_plan_response(repaired, fallback)
+        repaired = strip_to_final_text(repaired_output)
+        print("\n[planner] raw repaired model output:\n" + str(repaired_output) + "\n")
+        print("[planner] repaired plan output:\n" + repaired + "\n")
+        return _parse_plan_response(repaired or repaired_output, fallback)
 
     try:
         tasks, raw = _attempt_plan(primary_prompt, 0.45, 0.92)
