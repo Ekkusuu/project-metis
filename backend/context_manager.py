@@ -5,7 +5,6 @@ Removes older messages when context is too long.
 from typing import List, Dict, Any
 from backend.llama_engine import get_config
 from backend.token_utils import estimate_token_count, count_message_tokens
-from backend.memory_manager import append_to_temp_memory
 
 
 def trim_messages_to_context(messages: List[Dict[str, str]], max_tokens: int = None) -> List[Dict[str, str]]:
@@ -45,18 +44,15 @@ def trim_messages_to_context(messages: List[Dict[str, str]], max_tokens: int = N
         system_msg = messages[0]
         other_messages = messages[1:]
     
-    # Remove messages from the beginning (oldest) until we fit
-    trimmed_messages = other_messages[:]
-    removed_messages = []
-    
-    while trimmed_messages and count_message_tokens([system_msg] + trimmed_messages if system_msg else trimmed_messages) > max_tokens:
-        # Remove the oldest non-system message and save it
-        removed_msg = trimmed_messages.pop(0)
-        removed_messages.append(removed_msg)
-    
-    # Save removed messages (both user and assistant) to temp_memory for context
-    if removed_messages:
-        append_to_temp_memory(removed_messages)
+    # Always preserve the latest non-system message, which is typically the current user turn.
+    preserved_tail = other_messages[-1:] if other_messages else []
+    candidate_messages = other_messages[:-1] if len(other_messages) > 1 else []
+    trimmed_messages = candidate_messages[:]
+
+    while trimmed_messages and count_message_tokens([system_msg] + trimmed_messages + preserved_tail if system_msg else trimmed_messages + preserved_tail) > max_tokens:
+        trimmed_messages.pop(0)
+
+    trimmed_messages = trimmed_messages + preserved_tail
     
     # Reconstruct with system message first
     if system_msg:

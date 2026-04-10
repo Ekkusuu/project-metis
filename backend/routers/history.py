@@ -5,7 +5,6 @@ Stores chat histories as JSON in the memory folder.
 from __future__ import annotations
 
 import json
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,7 +13,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.memory_manager import save_messages_before_reset
+from backend.memory_manager import maybe_archive_chat_memory
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -117,6 +116,7 @@ def _new_chat(title: str = "New chat") -> Dict[str, Any]:
         "messages": _initial_messages(),
         "tasks": [],
         "ragData": {"results": []},
+        "memoryState": {"lastArchivedMessageCount": 0, "pendingTokenCount": 0},
         "lastUpdated": _now_iso(),
         "createdAt": _now_iso(),
     }
@@ -197,6 +197,7 @@ def _normalize_chat(raw: Any) -> Optional[Dict[str, Any]]:
         "messages": normalized_messages,
         "tasks": normalized_tasks,
         "ragData": normalized_rag_data,
+        "memoryState": dict(raw.get("memoryState") or {"lastArchivedMessageCount": 0, "pendingTokenCount": 0}),
         "lastUpdated": str(raw.get("lastUpdated") or _now_iso()),
         "createdAt": str(raw.get("createdAt") or _now_iso()),
     }
@@ -283,17 +284,6 @@ def _build_fresh_chat_response(store: Dict[str, Any]) -> ChatLoadResponse:
     )
 
 
-def _save_messages_to_memory(messages: List[Dict[str, Any]]) -> None:
-    def save_in_background() -> None:
-        try:
-            save_messages_before_reset(messages)
-        except Exception as exc:
-            print(f"Warning: Failed to save messages to temp_memory in background: {exc}")
-
-    thread = threading.Thread(target=save_in_background, daemon=True)
-    thread.start()
-
-
 @router.get("/chats", response_model=ChatListResponse)
 async def list_chats() -> ChatListResponse:
     try:
@@ -366,6 +356,7 @@ async def delete_chat(chat_id: str) -> ChatLoadResponse:
     try:
         store = _load_store()
         chat = _get_chat_or_raise(store, chat_id)
+        chat = maybe_archive_chat_memory(chat, force=True)
         store["chats"] = [item for item in store["chats"] if item["id"] != chat["id"]]
 
         if not store["chats"]:
@@ -409,6 +400,7 @@ async def save_chat_history(history: ChatHistory) -> ChatLoadResponse:
         else:
             chat["title"] = _derive_title(messages, str(history.title or chat["title"] or "New chat"))
         store["activeChatId"] = chat["id"]
+        chat = maybe_archive_chat_memory(chat)
         store["chats"].sort(key=lambda item: item["lastUpdated"], reverse=True)
         _save_store(store)
         updated_chat = _get_chat_or_raise(store, chat["id"])
@@ -426,16 +418,12 @@ async def reset_chat_history(chat_id: str | None = Query(default=None)) -> ChatL
         target_id = chat_id or store["activeChatId"]
         chat = _get_chat_or_raise(store, target_id)
 
-        existing_messages = [
-            {"role": "user" if item["sender"] == "user" else "assistant", "content": item["text"]}
-            for item in chat["messages"]
-        ]
-        if existing_messages:
-            _save_messages_to_memory(existing_messages)
+        chat = maybe_archive_chat_memory(chat, force=True)
 
         chat["messages"] = _initial_messages()
         chat["tasks"] = []
         chat["ragData"] = RagRetrievalSnapshot().model_dump()
+        chat["memoryState"] = {"lastArchivedMessageCount": 0, "pendingTokenCount": 0}
         chat["lastUpdated"] = _now_iso()
         chat["title"] = "New chat"
         chat["customTitle"] = False

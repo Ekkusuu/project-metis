@@ -3,7 +3,7 @@ import { API_URL } from '../lib/api';
 import { CloseIcon, TrashIcon } from './Icons';
 import './SettingsPanel.css';
 
-type SettingsState = {
+type PresetSettingsState = {
   chat: { system_prompt: string; temperature: number; top_p: number; max_tokens: number };
   rag: {
     enabled: boolean;
@@ -15,18 +15,22 @@ type SettingsState = {
     reranker_min_score: number;
     query_generation_count: number;
   };
-  memory: { temp_memory_token_limit: number; long_term_memory_token_limit: number };
+};
+
+type GlobalSettingsState = {
+  overthink: boolean;
+  memory: { enabled: boolean; chat_memory_token_limit: number; long_term_memory_token_limit: number };
 };
 
 type SettingsPreset = {
   id: string;
   title: string;
   description: string;
-  settings: SettingsState;
+  settings: PresetSettingsState;
   readonly?: boolean;
 };
 
-const defaultSettings: SettingsState = {
+const defaultPresetSettings: PresetSettingsState = {
   chat: { system_prompt: 'You are Metis, a helpful AI assistant.', temperature: 0.7, top_p: 0.95, max_tokens: 512 },
   rag: {
     enabled: true,
@@ -38,12 +42,18 @@ const defaultSettings: SettingsState = {
     reranker_min_score: 0.1,
     query_generation_count: 3,
   },
-  memory: { temp_memory_token_limit: 500, long_term_memory_token_limit: 5000 },
+};
+
+const defaultGlobalSettings: GlobalSettingsState = {
+  overthink: true,
+  memory: { enabled: true, chat_memory_token_limit: 3000, long_term_memory_token_limit: 5000 },
 };
 
 function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const [settings, setSettings] = useState<SettingsState>(defaultSettings);
-  const [folderText, setFolderText] = useState(defaultSettings.rag.folders_to_index.join('\n'));
+  const [settings, setSettings] = useState<PresetSettingsState>(defaultPresetSettings);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettingsState>(defaultGlobalSettings);
+  const [savedGlobalSettings, setSavedGlobalSettings] = useState<GlobalSettingsState>(defaultGlobalSettings);
+  const [folderText, setFolderText] = useState(defaultPresetSettings.rag.folders_to_index.join('\n'));
   const [presets, setPresets] = useState<SettingsPreset[]>([]);
   const [currentPreset, setCurrentPreset] = useState<SettingsPreset | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -64,12 +74,12 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const isEditorLocked = isDefaultSelected && !isCreatingPreset;
   const selectedPreset = activePresetId ? presets.find((item) => item.id === activePresetId) ?? null : currentPreset;
 
-  const setDraftSettings = (nextSettings: SettingsState) => {
+  const setDraftSettings = (nextSettings: PresetSettingsState) => {
     setSettings(nextSettings);
     setFolderText(nextSettings.rag.folders_to_index.join('\n'));
   };
 
-  const buildPayload = (): SettingsState => ({
+  const buildPayload = (): PresetSettingsState => ({
     ...settings,
     rag: {
       ...settings.rag,
@@ -80,7 +90,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const builtSettings = buildPayload();
   const hasPresetSettingsChanges = isEditingPreset && !!selectedPreset && JSON.stringify(builtSettings) !== JSON.stringify(selectedPreset.settings);
   const hasPresetMetadataChanges = isEditingPreset && !!selectedPreset && (draftTitle !== selectedPreset.title || draftDescription !== selectedPreset.description);
-  const canSavePresetChanges = isCreatingPreset || (!isDefaultSelected && (hasPresetSettingsChanges || hasPresetMetadataChanges));
+  const hasGlobalSettingsChanges = JSON.stringify(globalSettings) !== JSON.stringify(savedGlobalSettings);
+  const canSavePresetChanges = isCreatingPreset || (!isDefaultSelected && (hasPresetSettingsChanges || hasPresetMetadataChanges)) || hasGlobalSettingsChanges;
 
   const showTemporaryMessage = (type: 'success' | 'error' | 'info', text: string) => {
     if (messageTimeoutRef.current) {
@@ -96,9 +107,13 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const syncFromResponse = (data: any, fallbackSettings?: SettingsState) => {
-    if (data.settings) setDraftSettings(data.settings);
+  const syncFromResponse = (data: any, fallbackSettings?: PresetSettingsState) => {
+    if (data.preset_settings) setDraftSettings(data.preset_settings);
     else if (fallbackSettings) setDraftSettings(fallbackSettings);
+    if (data.global_settings) {
+      setGlobalSettings(data.global_settings);
+      setSavedGlobalSettings(data.global_settings);
+    }
     if (data.current_preset) setCurrentPreset(data.current_preset);
     if (Array.isArray(data.presets)) setPresets(data.presets);
     if (Object.prototype.hasOwnProperty.call(data, 'active_preset_id')) setActivePresetId(data.active_preset_id || null);
@@ -109,7 +124,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
       const resp = await fetch(`${API_URL}/settings`);
       if (!resp.ok) throw new Error((await resp.text()) || 'Failed to load settings');
       const data = await resp.json();
-      syncFromResponse(data, defaultSettings);
+      syncFromResponse(data, defaultPresetSettings);
     } catch (error) {
       console.error('Failed to fetch settings:', error);
       setMessage({ type: 'error', text: 'Failed to load settings.' });
@@ -144,8 +159,12 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
     setPresetEditorOpen(false);
   }, [activePresetId, currentPreset, presets, isCreatingPreset]);
 
-  const updateSection = <K extends keyof SettingsState>(section: K, patch: Partial<SettingsState[K]>) => {
+  const updateSection = <K extends keyof PresetSettingsState>(section: K, patch: Partial<PresetSettingsState[K]>) => {
     setSettings((prev) => ({ ...prev, [section]: { ...prev[section], ...patch } }));
+  };
+
+  const updateGlobalMemory = (patch: Partial<GlobalSettingsState['memory']>) => {
+    setGlobalSettings((prev) => ({ ...prev, memory: { ...prev.memory, ...patch } }));
   };
 
   const dispatchSettingsAppliedEvents = () => {
@@ -168,32 +187,46 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   const savePresetChanges = async () => {
-    if (isDefaultSelected && !isCreatingPreset) return;
-    if (!draftTitle.trim()) {
+    if (isCreatingPreset && !draftTitle.trim()) {
       showTemporaryMessage('error', 'Preset title is required.');
       return;
     }
     setIsSaving(true);
     setMessage({ type: 'info', text: isCreatingPreset ? 'Saving preset...' : 'Saving changes...' });
     try {
-      const payload = { title: draftTitle, description: draftDescription, settings: builtSettings };
-      const resp = await fetch(editingPresetId ? `${API_URL}/settings/presets/${editingPresetId}` : `${API_URL}/settings/presets`, {
-        method: editingPresetId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) throw new Error((await resp.text()) || 'Failed to save preset');
-      const data = await resp.json();
-      const savedPresetId = editingPresetId ?? data.preset?.id;
-      if (!savedPresetId) throw new Error('Saved preset id missing');
+      let latestData: any = null;
 
-      setPresetEditorOpen(false);
+      if (isCreatingPreset || isEditingPreset) {
+        const payload = { title: draftTitle, description: draftDescription, settings: builtSettings };
+        const resp = await fetch(editingPresetId ? `${API_URL}/settings/presets/${editingPresetId}` : `${API_URL}/settings/presets`, {
+          method: editingPresetId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) throw new Error((await resp.text()) || 'Failed to save preset');
+        const data = await resp.json();
+        const savedPresetId = editingPresetId ?? data.preset?.id;
+        if (!savedPresetId) throw new Error('Saved preset id missing');
+        setPresetEditorOpen(false);
+        const applyResp = await fetch(`${API_URL}/settings/presets/${savedPresetId}/apply`, { method: 'PUT' });
+        if (!applyResp.ok) throw new Error((await applyResp.text()) || 'Failed to apply preset');
+        latestData = await applyResp.json();
+      }
 
-      const applyResp = await fetch(`${API_URL}/settings/presets/${savedPresetId}/apply`, { method: 'PUT' });
-      if (!applyResp.ok) throw new Error((await applyResp.text()) || 'Failed to apply preset');
-      const applyData = await applyResp.json();
-      syncFromResponse(applyData, builtSettings);
-      showTemporaryMessage('success', applyData.reindexed ? 'Changes saved and knowledge base refreshed.' : 'Changes saved and applied.');
+      if (hasGlobalSettingsChanges) {
+        const globalResp = await fetch(`${API_URL}/settings/global`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(globalSettings),
+        });
+        if (!globalResp.ok) throw new Error((await globalResp.text()) || 'Failed to update global settings');
+        latestData = await globalResp.json();
+      }
+
+      if (latestData) {
+        syncFromResponse(latestData, builtSettings);
+      }
+      showTemporaryMessage('success', latestData?.reindexed ? 'Changes saved and knowledge base refreshed.' : 'Changes saved and applied.');
       dispatchSettingsAppliedEvents();
     } catch (error: any) {
       showTemporaryMessage('error', `Failed to save changes: ${error.message || error}`);
@@ -230,7 +263,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
       const resp = await fetch(`${API_URL}/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentPreset.settings),
+      body: JSON.stringify({ preset_settings: currentPreset.settings, global_settings: globalSettings }),
       });
       if (!resp.ok) throw new Error((await resp.text()) || 'Failed to select default settings');
       const data = await resp.json();
@@ -404,14 +437,16 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className={`settings-section ${isEditorLocked ? 'settings-section-disabled' : ''}`}>
+          <div className="settings-section">
             <div className="settings-section-title-block">
-              <h3>Memory</h3>
-              <p className="settings-section-copy">Tune temporary and long-term memory token budgets.</p>
+              <h3>Global Settings</h3>
+              <p className="settings-section-copy">These apply across all presets.</p>
             </div>
+            <label className="settings-toggle"><input type="checkbox" checked={globalSettings.overthink} onChange={(e) => setGlobalSettings((prev) => ({ ...prev, overthink: e.target.checked }))} /><span>Overthink</span></label>
+            <label className="settings-toggle"><input type="checkbox" checked={globalSettings.memory.enabled} onChange={(e) => updateGlobalMemory({ enabled: e.target.checked })} /><span>Enable memory</span></label>
             <div className="settings-grid settings-grid-two">
-              <label className="settings-field"><span>Temp memory limit</span><input type="number" min="100" max="50000" value={settings.memory.temp_memory_token_limit} onChange={(e) => updateSection('memory', { temp_memory_token_limit: Number(e.target.value) })} disabled={isEditorLocked} /></label>
-              <label className="settings-field"><span>Long-term limit</span><input type="number" min="500" max="100000" value={settings.memory.long_term_memory_token_limit} onChange={(e) => updateSection('memory', { long_term_memory_token_limit: Number(e.target.value) })} disabled={isEditorLocked} /></label>
+              <label className="settings-field"><span title="When a chat accumulates this many unsummarized tokens, Metis summarizes the important parts into long-term memory.">Chat memory limit</span><input type="number" min="100" max="50000" value={globalSettings.memory.chat_memory_token_limit} onChange={(e) => updateGlobalMemory({ chat_memory_token_limit: Number(e.target.value) })} /></label>
+              <label className="settings-field"><span title="Maximum size of a single long-term memory YAML file before Metis starts a new one.">Long-term limit</span><input type="number" min="500" max="100000" value={globalSettings.memory.long_term_memory_token_limit} onChange={(e) => updateGlobalMemory({ long_term_memory_token_limit: Number(e.target.value) })} /></label>
             </div>
           </div>
 
@@ -422,7 +457,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 
       {canSavePresetChanges && (
         <div className="settings-actions">
-          <button className="settings-save" onClick={savePresetChanges} disabled={isSaving || !draftTitle.trim()}>{isSaving ? 'Saving...' : 'Save changes'}</button>
+                <button className="settings-save" onClick={savePresetChanges} disabled={isSaving || (isCreatingPreset && !draftTitle.trim())}>{isSaving ? 'Saving...' : 'Save changes'}</button>
         </div>
       )}
     </div>

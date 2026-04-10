@@ -26,8 +26,11 @@ llm_service:
   host: "localhost"
   port: 3000
 
+overthink: true
+
 memory:
-  temp_memory_token_limit: 500  # Tokens before auto-summarization to long_term 
+  enabled: true
+  chat_memory_token_limit: 3000  # Tokens in a chat before auto-summarization to long_term
   long_term_memory_token_limit: 5000  # Token limit per long-term memory file before creating a new one 
 
 rag:

@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import json
 import re
+import time
 import yaml
 import requests
+import threading
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from pathlib import Path
@@ -87,6 +89,12 @@ def load_config() -> Dict[str, Any]:
             "host": "localhost",
             "port": 3000,
         },
+        "overthink": True,
+        "memory": {
+            "enabled": True,
+            "chat_memory_token_limit": 3000,
+            "long_term_memory_token_limit": 5000,
+        }
     }
 
     loaded_cfg: Dict[str, Any] = {}
@@ -145,6 +153,12 @@ def get_base_config() -> Dict[str, Any]:
             "host": "localhost",
             "port": 3000,
         },
+        "overthink": True,
+        "memory": {
+            "enabled": True,
+            "chat_memory_token_limit": 3000,
+            "long_term_memory_token_limit": 5000,
+        }
     }
 
     if not CONFIG_PATH.exists():
@@ -200,6 +214,37 @@ def get_llm_service_url() -> str:
 # Reuse a single HTTP session for all LLM service requests to improve
 # performance by keeping connections alive and reusing the pool.
 _http_session: Optional[requests.Session] = None
+_generation_metrics_local = threading.local()
+
+
+def begin_generation_tracking() -> Optional[Dict[str, float]]:
+    """Start request-scoped generation metrics collection."""
+    previous = getattr(_generation_metrics_local, "metrics", None)
+    _generation_metrics_local.metrics = {"tokens": 0.0, "seconds": 0.0, "calls": 0.0}
+    return previous
+
+
+def end_generation_tracking(previous: Optional[Dict[str, float]]) -> None:
+    """Reset request-scoped generation metrics collection."""
+    _generation_metrics_local.metrics = previous
+
+
+def get_generation_metrics() -> Dict[str, float]:
+    """Get the current request-scoped generation metrics."""
+    metrics = getattr(_generation_metrics_local, "metrics", None)
+    if metrics is None:
+        return {"tokens": 0.0, "seconds": 0.0, "calls": 0.0}
+    return dict(metrics)
+
+
+def add_generation_metrics(tokens: int, seconds: float) -> None:
+    """Accumulate generation metrics for the current request."""
+    metrics = getattr(_generation_metrics_local, "metrics", None)
+    if metrics is None:
+        return
+    metrics["tokens"] += max(0, float(tokens))
+    metrics["seconds"] += max(0.0, float(seconds))
+    metrics["calls"] += 1.0
 
 
 def get_http_session() -> requests.Session:
@@ -250,6 +295,7 @@ def chat_completion(
     Returns the assistant reply content as a string.
     """
     try:
+        started_at = time.time()
         url = f"{get_llm_service_url()}/chat/completion"
         payload = {
             "messages": messages,
@@ -276,7 +322,10 @@ def chat_completion(
                 # Fallback: convert to string
                 content = str(content)
         
-        return content.strip() if isinstance(content, str) else str(content).strip()
+        final_content = content.strip() if isinstance(content, str) else str(content).strip()
+        from backend.token_utils import count_tokens
+        add_generation_metrics(count_tokens(final_content), time.time() - started_at)
+        return final_content
     except Exception as e:
         print(f"LLM service error: {e}")
         raise RuntimeError(f"LLM service error: {e}")

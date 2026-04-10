@@ -61,39 +61,48 @@ class RagSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    temp_memory_token_limit: int = Field(ge=100, le=50000)
+    enabled: bool = True
+    chat_memory_token_limit: int = Field(ge=100, le=50000)
     long_term_memory_token_limit: int = Field(ge=500, le=100000)
 
 
-class SettingsPayload(BaseModel):
+class PresetSettingsPayload(BaseModel):
     chat: ChatSettings
     rag: RagSettings
+
+
+class GlobalSettingsPayload(BaseModel):
+    overthink: bool = True
     memory: MemorySettings
+
+
+class SettingsPayload(BaseModel):
+    preset_settings: PresetSettingsPayload
+    global_settings: GlobalSettingsPayload
 
 
 class SettingsPreset(BaseModel):
     id: str
     title: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=240)
-    settings: SettingsPayload
+    settings: PresetSettingsPayload
 
 
 class SettingsPresetCreate(BaseModel):
     title: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=240)
-    settings: SettingsPayload
+    settings: PresetSettingsPayload
 
 
 class SettingsPresetUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=240)
-    settings: SettingsPayload
+    settings: PresetSettingsPayload
 
 
-def _extract_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_preset_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     chat_cfg = config.get("chat", {})
     rag_cfg = config.get("rag", {})
-    memory_cfg = config.get("memory", {})
     return {
         "chat": {
             "system_prompt": chat_cfg.get("system_prompt", "You are Metis, a helpful AI assistant."),
@@ -111,10 +120,18 @@ def _extract_settings(config: Dict[str, Any]) -> Dict[str, Any]:
             "reranker_min_score": rag_cfg.get("reranker_min_score", 0.1),
             "query_generation_count": rag_cfg.get("query_generation_count", 3),
         },
+    }
+
+
+def _extract_global_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    memory_cfg = config.get("memory", {})
+    return {
+        "overthink": config.get("overthink", True),
         "memory": {
-            "temp_memory_token_limit": memory_cfg.get("temp_memory_token_limit", 500),
+            "enabled": memory_cfg.get("enabled", True),
+            "chat_memory_token_limit": memory_cfg.get("chat_memory_token_limit", memory_cfg.get("temp_memory_token_limit", 3000)),
             "long_term_memory_token_limit": memory_cfg.get("long_term_memory_token_limit", 5000),
-        },
+        }
     }
 
 
@@ -133,7 +150,7 @@ def _normalize_presets(raw: Any) -> List[Dict[str, Any]]:
         if not isinstance(settings_data, dict):
             continue
         try:
-            validated = SettingsPayload(**settings_data)
+            validated = PresetSettingsPayload(**settings_data)
         except Exception:
             continue
         normalized.append(
@@ -178,24 +195,28 @@ def _current_settings_preset() -> Dict[str, Any]:
         "id": "current-settings",
         "title": "Default settings",
         "description": "The baseline configuration Metis uses when no saved preset is selected.",
-        "settings": _extract_settings(get_base_config()),
+        "settings": _extract_preset_settings(get_base_config()),
         "readonly": True,
     }
 
 
 def _apply_settings_override(overrides: Dict[str, Any]) -> Dict[str, Any]:
     current = get_config()
-    previous = _extract_settings(current)
+    previous_preset = _extract_preset_settings(current)
+    previous_global = _extract_global_settings(current)
 
     save_local_config(overrides)
     reset_config_cache()
-    reset_rag_state()
 
-    applied = _extract_settings(get_config())
-    rag_before = previous.get("rag", {})
-    rag_after = applied.get("rag", {})
+    applied_preset = _extract_preset_settings(get_config())
+    applied_global = _extract_global_settings(get_config())
+    rag_before = previous_preset.get("rag", {})
+    rag_after = applied_preset.get("rag", {})
+    rag_changed = rag_before != rag_after
+    if rag_changed:
+        reset_rag_state()
     reindexed = False
-    if rag_after.get("enabled") and rag_before != rag_after:
+    if rag_after.get("enabled") and rag_changed:
         try:
             index_all_folders(clear_existing=False)
             reindexed = True
@@ -204,19 +225,17 @@ def _apply_settings_override(overrides: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "status": "success",
-        "settings": applied,
+        "preset_settings": applied_preset,
+        "global_settings": applied_global,
         "reindexed": reindexed,
     }
 
 
 @router.get("/settings")
 def get_settings() -> Dict[str, Any]:
-    current = _extract_settings(get_config())
-    local_raw = get_local_config()
-    local = _extract_settings(_deep_merge(current, local_raw)) if local_raw else {}
     return {
-        "settings": current,
-        "local_overrides": local,
+        "preset_settings": _extract_preset_settings(get_config()),
+        "global_settings": _extract_global_settings(get_config()),
         "current_preset": _current_settings_preset(),
         "active_preset_id": _read_active_preset_id(),
         "presets": _read_presets(),
@@ -229,7 +248,8 @@ def update_settings(payload: SettingsPayload) -> Dict[str, Any]:
 
     try:
         local = get_local_config()
-        local.update(overrides)
+        local.update(overrides.get("preset_settings", {}))
+        local.update(overrides.get("global_settings", {}))
         local.pop("active_settings_preset_id", None)
         result = _apply_settings_override(local)
         result["current_preset"] = _current_settings_preset()
@@ -238,6 +258,20 @@ def update_settings(payload: SettingsPayload) -> Dict[str, Any]:
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update settings: {e}")
+
+
+@router.put("/settings/global")
+def update_global_settings(payload: GlobalSettingsPayload) -> Dict[str, Any]:
+    try:
+        local = get_local_config()
+        local.update(payload.model_dump())
+        result = _apply_settings_override(local)
+        result["current_preset"] = _current_settings_preset()
+        result["active_preset_id"] = _read_active_preset_id()
+        result["presets"] = _read_presets()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update global settings: {e}")
 
 
 @router.post("/settings/presets")
