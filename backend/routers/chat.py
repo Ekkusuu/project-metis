@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.llama_engine import chat_completion, chat_completion_stream, get_config
+from backend.llama_engine import add_generation_metrics, begin_generation_tracking, chat_completion, chat_completion_stream, end_generation_tracking, get_config, get_generation_metrics
 from backend.agent_planner import build_chat_plan, execute_planning_task_with_metrics, inject_planning_notes
 from backend.rag_engine import (
     retrieve_context,
@@ -331,98 +331,98 @@ def chat_stream(req: ChatRequest):
         import time
         
         global _current_context
-        local_messages = list(messages)
-        latest_user_message = next((m.content for m in reversed(local_messages) if m.role == "user"), req.prompt or "")
-        local_messages = _apply_rag_context(local_messages, rag_cfg)
-        yield json.dumps({"type": "rag_retrieval", "data": _last_rag_results}) + "\n"
-        planner_messages = [{"role": m.role, "content": m.content} for m in local_messages]
-        plan_tasks = build_chat_plan(planner_messages, latest_user_message, bool(rag_cfg.get("enabled", False)))
-        plan_tasks = _set_task_status(plan_tasks, 0)
-        yield json.dumps({"type": "task_snapshot", "tasks": plan_tasks}) + "\n"
+        metrics_token = begin_generation_tracking()
+        try:
+            local_messages = list(messages)
+            latest_user_message = next((m.content for m in reversed(local_messages) if m.role == "user"), req.prompt or "")
+            local_messages = _apply_rag_context(local_messages, rag_cfg)
+            yield json.dumps({"type": "rag_retrieval", "data": _last_rag_results}) + "\n"
+            overthink_enabled = bool(get_config().get("overthink", True))
+            plan_tasks: List[Dict[str, Any]] = []
+            if overthink_enabled:
+                planner_messages = [{"role": m.role, "content": m.content} for m in local_messages]
+                plan_tasks = build_chat_plan(planner_messages, latest_user_message, bool(rag_cfg.get("enabled", False)))
+                plan_tasks = _set_task_status(plan_tasks, 0)
+                yield json.dumps({"type": "task_snapshot", "tasks": plan_tasks}) + "\n"
 
-        local_messages_dict = [m.model_dump() for m in local_messages]
-        local_messages_dict = trim_messages_to_context(local_messages_dict)
+            local_messages_dict = [m.model_dump() for m in local_messages]
+            local_messages_dict = trim_messages_to_context(local_messages_dict)
 
-        completed_task_outputs: List[Dict[str, str]] = []
-        planning_token_total = 0
-        planning_duration_total = 0.0
-        last_task_index = len(plan_tasks) - 1
-        for idx, task in enumerate(plan_tasks):
-            active_tasks = _set_task_status(plan_tasks, idx)
-            yield json.dumps({"type": "task_snapshot", "tasks": active_tasks}) + "\n"
-            task_result = execute_planning_task_with_metrics(local_messages_dict, task, completed_task_outputs, latest_user_message)
-            note = str(task_result.get("note", ""))
-            planning_token_total += int(task_result.get("raw_token_count", 0) or 0)
-            planning_duration_total += float(task_result.get("duration_seconds", 0.0) or 0.0)
-            if note:
-                completed_task_outputs.append({
-                    "task": str(task.get("content", "")),
-                    "output": note,
-                })
-                yield json.dumps({
-                    "type": "task_note",
-                    "task_id": task.get("id"),
-                    "task_content": task.get("content"),
-                    "note": task_result.get("display_note", note),
-                }) + "\n"
-            if idx < last_task_index:
-                completed_tasks = _set_task_status(plan_tasks, idx + 1)
-                yield json.dumps({"type": "task_snapshot", "tasks": completed_tasks}) + "\n"
+            completed_task_outputs: List[Dict[str, str]] = []
+            if overthink_enabled:
+                last_task_index = len(plan_tasks) - 1
+                for idx, task in enumerate(plan_tasks):
+                    active_tasks = _set_task_status(plan_tasks, idx)
+                    yield json.dumps({"type": "task_snapshot", "tasks": active_tasks}) + "\n"
+                    task_result = execute_planning_task_with_metrics(local_messages_dict, task, completed_task_outputs, latest_user_message)
+                    note = str(task_result.get("note", ""))
+                    if note:
+                        completed_task_outputs.append({
+                            "task": str(task.get("content", "")),
+                            "output": note,
+                        })
+                        yield json.dumps({
+                            "type": "task_note",
+                            "task_id": task.get("id"),
+                            "task_content": task.get("content"),
+                            "note": task_result.get("display_note", note),
+                        }) + "\n"
+                    if idx < last_task_index:
+                        completed_tasks = _set_task_status(plan_tasks, idx + 1)
+                        yield json.dumps({"type": "task_snapshot", "tasks": completed_tasks}) + "\n"
 
-        final_generation_messages = inject_planning_notes(local_messages_dict, completed_task_outputs)
-        final_generation_messages = trim_messages_to_context(final_generation_messages)
-        persisted_context_messages = trim_messages_to_context([dict(msg) for msg in local_messages_dict])
+            final_generation_messages = inject_planning_notes(local_messages_dict, completed_task_outputs)
+            final_generation_messages = trim_messages_to_context(final_generation_messages)
+            persisted_context_messages = trim_messages_to_context([dict(msg) for msg in local_messages_dict])
 
-        start_time = time.time()
-        token_count = 0
-        assistant_response = ""
-        
-        _current_context = [
-            {
-                "role": msg["role"],
-                "content": msg["content"],
-                "timestamp": timestamp
-            }
-            for msg in local_messages_dict
-        ]
-
-        for token in chat_completion_stream(
-            final_generation_messages,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-        ):
-            token_count += 1
-            assistant_response += token
-            # Send each token as NDJSON (newline-delimited JSON)
-            yield json.dumps({"type": "delta", "delta": token}) + "\n"
-        
-        # Calculate tokens per second
-        elapsed = time.time() - start_time
-        final_response_tokens = count_tokens(assistant_response)
-        total_generated_tokens = planning_token_total + final_response_tokens
-        total_generation_seconds = planning_duration_total + elapsed
-        tokens_per_second = total_generated_tokens / total_generation_seconds if total_generation_seconds > 0 else 0
-        
-        # Update context with assistant response
-        _current_context.append({
-            "role": "assistant",
-            "content": assistant_response,
-            "timestamp": datetime.datetime.now().isoformat()
-        })
-        
-        # Final chunk with performance stats and trimmed message count
-        final_chunk = {
-            "type": "done",
-            "done": True,
-            "tokens_per_second": round(tokens_per_second, 2),
-            "tasks": _set_task_status(plan_tasks, None),
-            "trimmed_messages": [
-                {"role": msg["role"], "content": msg["content"]}
-                for msg in persisted_context_messages
+            start_time = time.time()
+            assistant_response = ""
+            
+            _current_context = [
+                {
+                    "role": msg["role"],
+                    "content": msg["content"],
+                    "timestamp": timestamp
+                }
+                for msg in local_messages_dict
             ]
-        }
-        yield json.dumps(final_chunk) + "\n"
+
+            for token in chat_completion_stream(
+                final_generation_messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            ):
+                assistant_response += token
+                yield json.dumps({"type": "delta", "delta": token}) + "\n"
+            
+            elapsed = time.time() - start_time
+            final_response_tokens = count_tokens(assistant_response)
+            add_generation_metrics(final_response_tokens, elapsed)
+            generation_metrics = get_generation_metrics()
+            total_generated_tokens = generation_metrics.get("tokens", 0.0)
+            total_generation_seconds = generation_metrics.get("seconds", 0.0)
+            tokens_per_second = total_generated_tokens / total_generation_seconds if total_generation_seconds > 0 else 0
+            
+            _current_context.append({
+                "role": "assistant",
+                "content": assistant_response,
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+            
+            final_chunk = {
+                "type": "done",
+                "done": True,
+                "tokens_per_second": round(tokens_per_second, 2),
+                "tasks": _set_task_status(plan_tasks, None),
+                "trimmed_messages": [
+                    {"role": msg["role"], "content": msg["content"]}
+                    for msg in persisted_context_messages
+                ]
+            }
+            yield json.dumps(final_chunk) + "\n"
+        finally:
+            end_generation_tracking(metrics_token)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 

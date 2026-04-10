@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict, List
 import yaml
 
-from backend.llama_engine import chat_completion, get_config, strip_to_final_text
+from backend.llama_engine import add_generation_metrics, chat_completion, get_config, strip_thinking_tags, strip_to_final_text
 from backend.token_utils import count_tokens
 
 
@@ -87,6 +87,23 @@ def _clean_task_content(content: str) -> str:
     cleaned = content.strip()
     cleaned = re.sub(r"^content\s*:\s*", "", cleaned, flags=re.IGNORECASE).strip()
     return cleaned
+
+
+def _extract_task_resolution(output: str) -> str:
+    text = strip_to_final_text(output).strip() or strip_thinking_tags(output).strip()
+    if not text:
+        return ""
+
+    conclusion_match = re.search(r"(?:^|\n)(?:Conclusion(?: for [^\n:]+)?|Recommendation|Decision)\s*:?\s*(.*)$", text, re.IGNORECASE | re.DOTALL)
+    if conclusion_match:
+        conclusion = conclusion_match.group(1).strip()
+        if conclusion:
+            return conclusion.split("\n\n", 1)[0].strip()
+
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if paragraphs:
+        return paragraphs[-1]
+    return text
 
 
 def _topic_tokens(text: str) -> set[str]:
@@ -423,9 +440,9 @@ def execute_planning_task_with_metrics(
     )
     completed_tasks_text = "\n\n".join(
         f"Completed task: {item.get('task', '').strip()}\n"
-        f"Completed task output:\n{item.get('output', '').strip()}"
+        f"Resolved conclusion: {_extract_task_resolution(str(item.get('output', '')))}"
         for item in completed_tasks[-4:]
-        if item.get('task') and item.get('output')
+        if item.get('task') and _extract_task_resolution(str(item.get('output', '')))
     ) or "- None yet"
 
     prompt = (
@@ -440,10 +457,19 @@ def execute_planning_task_with_metrics(
         "This subresponse is not shown directly to the user, but it will be provided to the final response generator as context. "
         "Be specific, concrete, and focused. Work only on the current task, using the whole conversation as context. "
         "Treat the latest user message as the primary target of the task, and use the broader chat context only to support or disambiguate it. "
-        "Use previously completed tasks only to understand progress and avoid duplication. Do not restate their conclusions unless absolutely necessary. Add only the new analysis needed for the current task. "
+        "Use previously completed tasks only to understand progress and avoid duplication. Assume their conclusions are already known. "
+        "Do not restate prior completed-task conclusions, shared diagnosis, or the same retrieved facts unless the current task truly requires a direct contrast. "
+        "Add only the new analysis, decision, distinction, tradeoff, or recommendation needed for the current task. "
+        "If the current task overlaps earlier tasks, focus only on what remains unresolved or what is uniquely different about this task. "
+        "Do not begin by re-summarizing the user's situation, the retrieved context, or previous task outputs. Go straight to the incremental point for this task. "
+        "Do not repeat the same recommendation across tasks. Each task output must contribute one distinct incremental insight. "
+        "Do not restate the same 'core issue', 'knowledge base alignment', or 'recommended path' sections from earlier tasks. "
+        "If those are already established, refer to them implicitly and move straight to the unique decision required by the current task. "
+        "Answer the current task itself, not the broader request again. "
+        "Treat earlier tasks as resolved inputs, not text to continue or rewrite. The current task should read like a separate pass over the problem with one distinct goal. "
         "If the latest request is a simple factual question, keep the output factual and concise. Do not drift into emotional support, dating advice, therapy framing, or unrelated practical guidance. "
         "Do not write the final user-facing answer, but do write a substantial internal analysis or recommendation for this task. "
-        "Keep the output concise: 1 to 2 short paragraphs, or up to 5 compact bullet points. Aim for roughly 80 to 140 words. "
+        "Keep the output concise: 1 short paragraph or up to 4 compact bullet points. Aim for roughly 60 to 120 words. "
         "End with a short conclusion the final responder can directly use. "
         "Do not mention tools.\n\n"
         f"Current phase: {phase}\n"
@@ -473,9 +499,10 @@ def execute_planning_task_with_metrics(
         )
         duration_seconds = time.time() - started_at
         raw_token_count = count_tokens(raw)
+        add_generation_metrics(raw_token_count, duration_seconds)
         display_note = raw.strip()
         final_text = strip_to_final_text(raw)
-        final_text = final_text.strip()
+        final_text = final_text.strip() or strip_thinking_tags(raw).strip()
         if final_text:
             return {
                 "note": final_text,
@@ -591,7 +618,7 @@ def build_chat_plan(messages: List[Dict[str, str]], last_user_message: str, rag_
         return _parse_plan_response(repaired or repaired_output, fallback)
 
     try:
-        tasks, raw = _attempt_plan(primary_prompt, 0.45, 0.92)
+        tasks, raw = _attempt_plan(primary_prompt, 0.3, 0.9)
         if _looks_like_fallback(tasks):
             tasks = _repair_plan(raw)
         if _looks_like_fallback(tasks):

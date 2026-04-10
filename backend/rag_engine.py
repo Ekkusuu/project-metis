@@ -44,6 +44,46 @@ def _normalize_query_list(queries: List[str], fallback_query: str) -> List[str]:
 
     return cleaned or [fallback_query]
 
+
+def _looks_like_answer_text(text: str) -> bool:
+    lowered = text.lower()
+    answer_markers = [
+        "thanks for sharing",
+        "the good news",
+        "here's",
+        "let me help",
+        "## ",
+        "### ",
+        "source:",
+        "start small",
+        "addressing each issue",
+    ]
+    return any(marker in lowered for marker in answer_markers)
+
+
+def _repair_queries_to_yaml(raw_output: str, req_count: int) -> str:
+    repair_prompt = (
+        "Convert the following output into valid YAML query output. "
+        "Return ONLY valid YAML in this exact shape:\n"
+        "queries:\n"
+        "  - first query\n"
+        "  - second query\n"
+        "  - third query\n"
+        f"Return exactly {req_count} concise search queries. Do not answer the user.\n\n"
+        f"Output to repair:\n{raw_output}"
+    )
+    repaired = chat_completion(
+        [
+            {"role": "system", "content": "You normalize retrieval-query outputs into strict YAML."},
+            {"role": "user", "content": repair_prompt},
+        ],
+        temperature=0.0,
+        top_p=0.4,
+        max_tokens=300,
+    )
+    print("\n[rag] repaired multi-query output:\n" + str(repaired) + "\n")
+    return strip_to_final_text(repaired)
+
 # Global ChromaDB client
 _chroma_client: Optional[chromadb.Client] = None
 _collection: Optional[chromadb.Collection] = None
@@ -648,7 +688,7 @@ def generate_rag_query(messages: List[Dict[str, str]], last_user_message: str) -
         ]
 
         # Give reasoning models enough room to reach the final YAML/query output.
-        generated_query = chat_completion(llm_messages, temperature=0.2, max_tokens=1800)
+        generated_query = chat_completion(llm_messages, temperature=0.28, top_p=0.75, max_tokens=1800)
         print("\n[rag] raw single-query output:\n" + str(generated_query) + "\n")
         generated_query = strip_to_final_text(generated_query)
 
@@ -734,12 +774,16 @@ def generate_rag_queries(messages: List[Dict[str, str]], last_user_message: str)
         ]
 
         # Give reasoning models room to finish the final YAML after internal reasoning.
-        generated = chat_completion(llm_messages, temperature=0.0, top_p=0.5, max_tokens=384)
+        generated = chat_completion(llm_messages, temperature=0.18, top_p=0.72, max_tokens=384)
         print("\n[rag] raw multi-query output:\n" + str(generated) + "\n")
         generated = strip_to_final_text(generated)
         print("[rag] stripped multi-query output:\n" + str(generated) + "\n")
         if not generated:
             return [last_user_message]
+
+        if _looks_like_answer_text(generated):
+            generated = _repair_queries_to_yaml(generated, req_count)
+            print("[rag] repaired stripped multi-query output:\n" + str(generated) + "\n")
 
         queries: List[str] = []
         yaml_candidate = _extract_yaml_candidate(generated)
