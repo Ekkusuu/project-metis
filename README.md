@@ -10,7 +10,7 @@
 
 ![Local](https://img.shields.io/badge/Local-First-1f2937?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-Build-2496ED?style=flat-square&logo=docker&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 </div>
 
@@ -62,8 +62,6 @@ The release example config uses `docs` and `memory/long_term` for RAG by default
 - Python 3.10+
 - Node.js 18+
 - `npm`
-- a GGUF model in `model/`
-- embedding / reranker models in `rag-models/` if RAG is enabled
 - Docker Desktop or Docker Engine if you want the Docker workflow
 - NVIDIA GPU + drivers if you want GPU acceleration
 
