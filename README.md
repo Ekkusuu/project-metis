@@ -1,13 +1,18 @@
+<div align="center">
+
+<img src="./frontend/src/assets/banner.png" alt="Project Metis banner" width="100%"/>
+
 # Project Metis
 
-![Project Metis banner](frontend/src/assets/banner.png)
+**Local-first AI assistant with built-in RAG, memory, and customizable behavior.**
 
-Project Metis is a local-first AI assistant with three parts:
-- a React frontend,
-- a FastAPI backend,
-- a Node `node-llama-cpp` LLM service.
+*Use it as a ready-to-run desktop-style assistant, or treat it as a strong starting point for building new local LLM projects with RAG, memory, and custom workflows.*
 
-It can also index local folders for RAG and store conversation memory on disk.
+![Local](https://img.shields.io/badge/Local-First-1f2937?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-Build-2496ED?style=flat-square&logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
+
+</div>
 
 ## Downloading a Release
 
@@ -61,6 +66,19 @@ The release example config uses `docs` and `memory/long_term` for RAG by default
 - embedding / reranker models in `rag-models/` if RAG is enabled
 - Docker Desktop or Docker Engine if you want the Docker workflow
 - NVIDIA GPU + drivers if you want GPU acceleration
+
+## Required Models
+
+Project Metis expects local model files in these folders:
+
+- `model/`
+  - a GGUF chat model
+- `rag-models/<embedding-model-folder>`
+  - embedding model for RAG indexing and search
+- `rag-models/<reranker-model-folder>`
+  - reranker model for improving retrieval quality
+
+These models can be obtained from [Hugging Face](https://huggingface.co/).
 
 Apple Silicon notes:
 - native local setup on macOS supports Apple GPU acceleration for the RAG models via PyTorch MPS,
